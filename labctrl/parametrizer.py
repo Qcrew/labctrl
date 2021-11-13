@@ -1,6 +1,7 @@
 """ """
 
 import inspect
+from numbers import Real
 from typing import Any, Callable, Type, Union
 
 import numpy as np
@@ -18,104 +19,98 @@ class ParamConversionError(Exception):
     """ """
 
 
-class BoundsParsingError(Exception):
-    """ """
-
-
 class ParamOutOfBoundsError(Exception):
     """ """
-
-
-class Bounds:
-    """ """
-
-    def __init__(self, boundspec) -> None:
-        """ """
-        try:
-            self._predicate, self._stringrep = self._parse(boundspec)
-        except (TypeError, RecursionError) as e:
-            message = f"{e} due to invalid bound specification {boundspec}"
-            raise BoundsParsingError(message) from None
-
-    def _parse(self, boundspec):
-        """ """
-        predicate, stringrep = None, str(boundspec)  # default case
-        is_nested = lambda: any(isinstance(spec, list) for spec in boundspec)
-
-        # unbounded Param
-        if boundspec is None:
-            predicate = lambda *_: True
-        # Param with numeric values in an interval
-        elif isinstance(boundspec, (list, tuple)) and not is_nested():
-            # continuous value in closed interval [min, max]
-            if len(boundspec) == 2:
-                min, max = boundspec
-                predicate = lambda value, _: min <= value <= max
-            # linearly spaced values in closed interval [start, stop, step]
-            elif len(boundspec) == 3:
-                start, stop, step = boundspec
-                interval = np.arange(start, stop + step / 2, step)
-                predicate = lambda value, _: value in interval
-        # Param with a discrete set of values
-        elif isinstance(boundspec, set):
-            predicate = lambda value, _: value in boundspec
-        # Param with values of one specified type
-        elif inspect.isclass(boundspec):
-            predicate = lambda value, _: isinstance(value, boundspec)
-        # Param with values truth-tested by a user-defined predicate function
-        elif inspect.isfunction(boundspec):
-            num_args = len(inspect.signature(boundspec).parameters)
-            stringrep = f"tested by {boundspec.__qualname__}"
-            # function needs a single argument which is the value to be tested
-            if num_args == 1:
-                predicate = lambda value, _: boundspec(value)
-            # function also needs the state of the obj the Param is bound to
-            elif num_args == 2:
-                predicate = lambda value, obj: boundspec(value, obj)
-        # Param with multiple bound specifications
-        elif is_nested():
-            predicates, stringreps = zip(*(self._parse(spec) for spec in boundspec))
-            # value must pass all specifications
-            if isinstance(boundspec, list):
-                predicate = lambda value, obj: all((p(value, obj) for p in predicates))
-                stringrep = f"all({', '.join(stringreps)})"
-            # value must pass any specification
-            elif isinstance(boundspec, tuple):
-                predicate = lambda value, obj: any((p(value, obj) for p in predicates))
-                stringrep = f"any({', '.join(stringreps)})"
-        else:
-            raise BoundsParsingError(f"invalid bound specification {boundspec}")
-
-        return predicate, stringrep
-
-    def __call__(self, value, obj):
-        """ """
-        return self._predicate(value, obj)
-
-    def __repr__(self) -> str:
-        """ """
-        return self._stringrep
 
 
 class Param:
     """ """
 
-    def __init__(
-        self,
-        bounds: Union[Callable[[Any], bool], tuple, set] = None,
-        getter: Union[Callable[[Any], Any], bool, str] = True,
-        setter: Union[Callable[[Any, Any], None], bool, str] = True,
-        parser: Callable[[Any], Any] = None,
-    ) -> None:
+    class Bounds:
+        """ """
+
+        class BoundsParsingError(Exception):
+            """ """
+
+        def __init__(self, boundspec) -> None:
+            """ """
+            try:
+                self._predicate, self._stringrep = self._parse(boundspec)
+            except (TypeError, RecursionError, ValueError, UnboundLocalError):
+                message = f"invalid bound specification: {boundspec}"
+                raise self.BoundsParsingError(message) from None
+
+        def _parse(self, boundspec):
+            """ """
+            stringrep = str(boundspec)  # default case
+            is_nested = lambda: any(isinstance(spec, list) for spec in boundspec)
+
+            # unbounded Param
+            if boundspec is None:
+                predicate = lambda *_: True
+            # Param with numeric values in an interval
+            elif isinstance(boundspec, (list, tuple)) and not is_nested():
+                # continuous value in closed interval [min, max]
+                if len(boundspec) == 2:
+                    min, max = boundspec
+                    predicate = lambda value, _: min <= value <= max
+                # linearly spaced values in closed interval [start, stop, step]
+                elif len(boundspec) == 3:
+                    start, stop, step = boundspec
+                    interval = np.arange(start, stop + step / 2, step)
+                    predicate = lambda value, _: value in interval
+            # Param with a discrete set of values
+            elif isinstance(boundspec, set):
+                predicate = lambda value, _: value in boundspec
+            # Param with values of one specified type
+            elif inspect.isclass(boundspec):
+                predicate = lambda value, _: isinstance(value, boundspec)
+            # Param with values truth-tested by a user-defined predicate function
+            elif inspect.isfunction(boundspec):
+                num_args = len(inspect.signature(boundspec).parameters)
+                stringrep = f"tested by {boundspec.__qualname__}"
+                # function needs a single argument which is the value to be tested
+                if num_args == 1:
+                    predicate = lambda value, _: boundspec(value)
+                # function also needs the state of the obj the Param is bound to
+                elif num_args == 2:
+                    predicate = lambda value, obj: boundspec(value, obj)
+            # Param with multiple bound specifications
+            elif is_nested():
+                predicates, stringreps = zip(*(self._parse(spec) for spec in boundspec))
+                # value must pass all specifications
+                if isinstance(boundspec, list):
+                    predicate = lambda value, obj: all(
+                        (p(value, obj) for p in predicates)
+                    )
+                    stringrep = f"all({', '.join(stringreps)})"
+                # value must pass any specification
+                elif isinstance(boundspec, tuple):
+                    predicate = lambda value, obj: any(
+                        (p(value, obj) for p in predicates)
+                    )
+                    stringrep = f"any({', '.join(stringreps)})"
+
+            return predicate, stringrep
+
+        def __call__(self, value, obj):
+            """ """
+            return self._predicate(value, obj)
+
+        def __repr__(self) -> str:
+            """ """
+            return self._stringrep
+
+    def __init__(self, bounds=None, getter=True, setter=True, parser=None) -> None:
         """ """
         self._name = None  # updated by __set_name__()
-        self._bound = Bounds(bounds)
+        self._bound = self.Bounds(bounds)
         self._getter = self._get_getter(getter)
         self._setter = self._get_setter(setter, getter)
         self._parser = parser
 
     def __repr__(self) -> str:
-        name, bounds = self._name, self._bounds
+        name, bounds = self._name, self._bound
         return f"{self.__class__.__name__}({name = }, {bounds = })"
 
     def __set_name__(self, cls: Type[Any], name: str) -> None:
