@@ -1,14 +1,9 @@
 """ """
 
-import ctypes
-from pathlib import Path
 from typing import Any
 
 from labctrl.instrument import Instrument, InstrumentConnectionError
-from labctrl.param import Param
-
-# load DLL placed in the same directory as this driver
-VNX = ctypes.CDLL(str(Path(__file__).resolve().parent / "lms.dll"))
+from labctrl.parametrizer import Param
 
 FREQ_UNIT = 10.0  # LMS encodes frequency as an integer of 10Hz steps
 POW_UNIT = 0.25  # LMS encodes power level as an integer of 0.25dB steps
