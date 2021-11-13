@@ -116,6 +116,7 @@ class DLLInstrument(Instrument):
         # command sets param value on the instrument
         return getattr(self._driver, command)(self._pointer, value)
 
+
 class VISAInstrument(Instrument):
     """ """
 
