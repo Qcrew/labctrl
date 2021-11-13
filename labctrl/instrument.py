@@ -20,7 +20,7 @@ class InstrumentMetaclass(type):
 
     def __init__(cls, name, bases, kwds) -> None:
         super().__init__(name, bases, kwds)
-        cls._params: set[str] = parametrize(cls)
+        cls._params: list[str] = parametrize(cls)
         yaml.SafeDumper.add_representer(cls, cls.dump)
         yaml.SafeLoader.add_constructor(name, cls.load)
 
@@ -28,7 +28,7 @@ class InstrumentMetaclass(type):
         return f"<class '{cls.__name__}>"
 
     @property
-    def params(cls) -> set[str]:
+    def params(cls) -> list[str]:
         """ """
         return cls._params
 
@@ -88,6 +88,7 @@ class DLLInstrument(Instrument):
     def __init__(self, name: str, id: Any, **params) -> None:
         """ """
         super().__init__(name, id)
+        # TODO error handling, outsource to _locatedll() method
         modulepath = Path(inspect.getsourcefile(self.__class__))
         handlepath = modulepath.parent / f"{modulepath.stem}.dll"
         self._handle = ctypes.CDLL(str(handlepath))

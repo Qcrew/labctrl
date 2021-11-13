@@ -233,9 +233,10 @@ class Param:
         return value
 
 
-def parametrize(cls: Type[Any]) -> set[str]:
+def parametrize(cls: Type[Any]) -> list[str]:
     """Finds the names of Params of a class hierachy"""
     if not inspect.isclass(cls):
         raise ValueError("Only python classes can be parametrized")
     mro = inspect.getmro(cls)
-    return {k for c in mro for k, v in c.__dict__.items() if isinstance(v, Param)}
+    paramset = {k for c in mro for k, v in c.__dict__.items() if isinstance(v, Param)}
+    return sorted(paramset)
