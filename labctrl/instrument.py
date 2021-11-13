@@ -50,11 +50,11 @@ class Instrument(metaclass=InstrumentMetaclass):
 
     def connect(self) -> None:
         """ """
-        raise NotImplementedError("Instrument subclasses must implement connect()")
+        raise NotImplementedError("Subclasses must implement connect()")
 
     def disconnect(self) -> None:
         """ """
-        raise NotImplementedError("Instrument subclasses must implement disconnect()")
+        raise NotImplementedError("Subclasses must implement disconnect()")
 
     def configure(self, **params) -> None:
         """ """
@@ -90,16 +90,17 @@ class DLLInstrument(Instrument):
         super().__init__(name, id)
         # TODO error handling, outsource to _locatedll() method
         modulepath = Path(inspect.getsourcefile(self.__class__))
-        handlepath = modulepath.parent / f"{modulepath.stem}.dll"
-        self._handle = ctypes.CDLL(str(handlepath))
+        driverpath = modulepath.parent / f"{modulepath.stem}.dll"
+        self._driver = ctypes.CDLL(str(driverpath))
         self._pointer = self.connect()
         self.configure(**params)
 
-    @property
-    def handle(self) -> tuple[Any]:
+    def handle(self, command: str, value: Any = None):
         """ """
-        return self._handle, self._pointer
-
+        if value is None:  # command gets param value from the instrument
+            return getattr(self._driver, command)(self._pointer)
+        # command sets param value on the instrument
+        return getattr(self._driver, command)(self._pointer, *value)
 
 class VISAInstrument(Instrument):
     """ """
@@ -109,13 +110,8 @@ class VISAInstrument(Instrument):
     def __init__(self, name: str, id: Any, **params) -> None:
         """ """
         super().__init__(name, id)
-        self._handle = self.connect()
+        self._driver = self.connect()
         self.configure(**params)
-
-    @property
-    def handle(self) -> tuple[Any]:
-        """ """
-        return self._handle
 
     def connect(self) -> None:
         """ """  # TODO error handling
@@ -123,4 +119,11 @@ class VISAInstrument(Instrument):
 
     def disconnect(self) -> None:
         """ """
-        self._handle.close()
+        self._driver.close()
+
+    def handle(self, command: str, value: Any = None):
+        """ """
+        if value is None:  # command gets param value from the instrument
+            return self._driver.query(f"{command}?")
+        # command sets param value on the instrument
+        return self._driver.write(f"{command} {value}")
