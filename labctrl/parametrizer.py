@@ -31,21 +31,22 @@ class Bounds:
 
     def __init__(self, boundspec) -> None:
         """ """
-        self._predicate, self._stringrep = self._parse(boundspec)
-
-        if self._predicate is None:
-            raise BoundsParsingError(f"Invalid bound specification: {boundspec}")
+        try:
+            self._predicate, self._stringrep = self._parse(boundspec)
+        except (TypeError, RecursionError) as e:
+            message = f"{e} due to invalid bound specification {boundspec}"
+            raise BoundsParsingError(message) from None
 
     def _parse(self, boundspec):
         """ """
         predicate, stringrep = None, str(boundspec)  # default case
-        is_nested = lambda : any(isinstance(spec, list) for spec in boundspec)
+        is_nested = lambda: any(isinstance(spec, list) for spec in boundspec)
 
         # unbounded Param
         if boundspec is None:
             predicate = lambda *_: True
         # Param with numeric values in an interval
-        elif isinstance(boundspec, list) and not is_nested():
+        elif isinstance(boundspec, (list, tuple)) and not is_nested():
             # continuous value in closed interval [min, max]
             if len(boundspec) == 2:
                 min, max = boundspec
@@ -65,7 +66,7 @@ class Bounds:
         elif inspect.isfunction(boundspec):
             num_args = len(inspect.signature(boundspec).parameters)
             stringrep = f"tested by {boundspec.__qualname__}"
-            # function needs a single argument which is the value to be tested 
+            # function needs a single argument which is the value to be tested
             if num_args == 1:
                 predicate = lambda value, _: boundspec(value)
             # function also needs the state of the obj the Param is bound to
@@ -82,6 +83,8 @@ class Bounds:
             elif isinstance(boundspec, tuple):
                 predicate = lambda value, obj: any((p(value, obj) for p in predicates))
                 stringrep = f"any({', '.join(stringreps)})"
+        else:
+            raise BoundsParsingError(f"invalid bound specification {boundspec}")
 
         return predicate, stringrep
 
