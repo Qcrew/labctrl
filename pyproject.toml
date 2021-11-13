@@ -8,6 +8,8 @@ authors = ["Atharv Joshi <atharvjoshi@ymail.com>"]
 python = ">=3.9,<3.11"
 numpy = "^1.21.3"
 PyYAML = "^6.0"
+PyVISA = "^1.11.3"
+PyVISA-py = "^0.5.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
