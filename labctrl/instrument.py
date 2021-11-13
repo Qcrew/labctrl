@@ -48,6 +48,11 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         return f"{self.name}-{self.id}"
 
+    @property
+    def handle(self) -> Any:
+        """ """
+        raise NotImplementedError("Subclasses must assign handle")
+
     def connect(self) -> None:
         """ """
         raise NotImplementedError("Subclasses must implement connect()")
@@ -55,6 +60,10 @@ class Instrument(metaclass=InstrumentMetaclass):
     def disconnect(self) -> None:
         """ """
         raise NotImplementedError("Subclasses must implement disconnect()")
+
+    def communicate(self, command: str, value: Any) -> Any:
+        """ """
+        raise NotImplementedError("Subclasses must implement communicate()")
 
     def configure(self, **params) -> None:
         """ """
@@ -95,12 +104,17 @@ class DLLInstrument(Instrument):
         self._pointer = self.connect()
         self.configure(**params)
 
-    def handle(self, command: str, value: Any = None):
+    @property
+    def handle(self) -> tuple[Any]:
+        """ """
+        return self._driver, self._pointer
+
+    def communicate(self, command: str, value: Any = None):
         """ """
         if value is None:  # command gets param value from the instrument
             return getattr(self._driver, command)(self._pointer)
         # command sets param value on the instrument
-        return getattr(self._driver, command)(self._pointer, *value)
+        return getattr(self._driver, command)(self._pointer, value)
 
 class VISAInstrument(Instrument):
     """ """
@@ -113,6 +127,11 @@ class VISAInstrument(Instrument):
         self._driver = self.connect()
         self.configure(**params)
 
+    @property
+    def handle(self) -> tuple[Any]:
+        """ """
+        return self._driver
+
     def connect(self) -> None:
         """ """  # TODO error handling
         return pyvisa.ResourceManager().open_resource(self.id)
@@ -121,7 +140,7 @@ class VISAInstrument(Instrument):
         """ """
         self._driver.close()
 
-    def handle(self, command: str, value: Any = None):
+    def communicate(self, command: str, value: Any = None):
         """ """
         if value is None:  # command gets param value from the instrument
             return self._driver.query(f"{command}?")
