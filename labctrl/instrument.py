@@ -51,19 +51,19 @@ class Instrument(metaclass=InstrumentMetaclass):
     @property
     def handle(self) -> Any:
         """ """
-        raise NotImplementedError("Subclasses must assign handle")
+        raise NotImplementedError("subclasses must assign handle")
 
     def connect(self) -> None:
         """ """
-        raise NotImplementedError("Subclasses must implement connect()")
+        raise NotImplementedError("subclasses must implement connect()")
 
     def disconnect(self) -> None:
         """ """
-        raise NotImplementedError("Subclasses must implement disconnect()")
+        raise NotImplementedError("subclasses must implement disconnect()")
 
     def communicate(self, command: str, value: Any) -> Any:
         """ """
-        raise NotImplementedError("Subclasses must implement communicate()")
+        raise NotImplementedError("subclasses must implement communicate()")
 
     def configure(self, **params) -> None:
         """ """
@@ -97,12 +97,22 @@ class DLLInstrument(Instrument):
     def __init__(self, name: str, id: Any, **params) -> None:
         """ """
         super().__init__(name, id)
-        # TODO error handling, outsource to _locatedll() method
-        modulepath = Path(inspect.getsourcefile(self.__class__))
-        driverpath = modulepath.parent / f"{modulepath.stem}.dll"
-        self._driver = ctypes.CDLL(str(driverpath))
+        self._driver = self._locatedll()
         self._pointer = self.connect()
         self.configure(**params)
+
+    def _locatedll(self) -> ctypes.CDLL:
+        """ """
+        modulepath = Path(inspect.getsourcefile(self.__class__))
+        driverpath = (path := modulepath.parent) / (dllname := f"{modulepath.stem}.dll")
+        if not driverpath.exists():
+            message = f"driver named '{dllname}' does not exist in {path = }"
+            raise InstrumentConnectionError(message)
+        try:
+            return ctypes.CDLL(str(driverpath))
+        except OSError:
+            message = f"some dependent dll(s) of '{dllname}' were not found"
+            raise InstrumentConnectionError(message) from None
 
     @property
     def handle(self) -> tuple[Any]:
