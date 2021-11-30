@@ -1,4 +1,4 @@
 __version__ = "0.1.0"
 
-from labctrl.instrument import Instrument
-from labctrl.parametrizer import Param
+#from labctrl.instrument import Instrument
+#from labctrl.parameter import Parameter
