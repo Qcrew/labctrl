@@ -9,6 +9,10 @@ import yaml
 from labctrl.parameter import Parameter, parametrize, NotSettableError
 
 
+class ConnectionError(Exception):
+    """ """
+
+
 class InstrumentMetaclass(type):
     """ """
 
@@ -36,7 +40,7 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         self._name = str(name)
         self._id = id
-        self._handle = None  # to be updated by connect()
+        self._handle = None
         self.connect()
         self.configure(**parameters)
 
@@ -63,6 +67,10 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         raise NotImplementedError("subclasses must implement connect()")
 
+    def idle(self) -> None:
+        """ """
+        raise NotImplementedError("subclasses must implement idle()")
+
     def disconnect(self) -> None:
         """ """
         raise NotImplementedError("subclasses must implement disconnect()")
@@ -72,7 +80,7 @@ class Instrument(metaclass=InstrumentMetaclass):
         settables = self.__class__._settables
         for name, value in parameters.items():
             if name not in settables:
-                raise NotSettableError(f"Can't set '{name}'; {self} has {settables = }")
+                raise NotSettableError(f"can't set '{name}'; {self} has {settables = }")
             setattr(self, name, value)
 
     def snapshot(self) -> dict[str, Any]:
@@ -82,8 +90,9 @@ class Instrument(metaclass=InstrumentMetaclass):
     @classmethod
     def dump(cls, dumper: yaml.SafeDumper, instrument: Instrument) -> yaml.MappingNode:
         """ """
-        yamltag = instrument.__class__.__name__
-        yamlmap = instrument.snapshot()
+        yamltag = cls.__name__
+        gettables, settables = cls._gettables, cls._settables
+        yamlmap = {name: getattr(instrument, name) for name in gettables & settables}
         return dumper.represent_mapping(yamltag, yamlmap)
 
     @classmethod

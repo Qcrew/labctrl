@@ -52,13 +52,13 @@ class Parameter:
         def _parse(self, boundspec):
             """ """
             stringrep = str(boundspec)  # default case
-            is_nested = lambda: any(isinstance(spec, list) for spec in boundspec)
+            numeric = lambda: all(isinstance(spec, (int, float)) for spec in boundspec)
 
             # unbounded Parameter
             if boundspec is None:
                 predicate = lambda *_: True
             # Parameter with numeric values in an interval
-            elif isinstance(boundspec, (list, tuple)) and not is_nested():
+            elif isinstance(boundspec, (list, tuple)) and numeric():
                 # continuous value in closed interval [min, max]
                 if len(boundspec) == 2:
                     min, max = boundspec
@@ -85,7 +85,7 @@ class Parameter:
                 elif num_args == 2:
                     predicate = lambda value, obj: boundspec(value, obj)
             # Parameter with multiple bound specifications
-            elif is_nested():
+            else:
                 predicates, stringreps = zip(*(self._parse(spec) for spec in boundspec))
                 # value must pass all specifications
                 if isinstance(boundspec, list):
@@ -103,7 +103,7 @@ class Parameter:
             try:
                 truth = self._predicate(value, obj)
             except (TypeError, ValueError) as error:
-                raise BoundingError(f"Can't check {param} due to {error = }") from None
+                raise BoundingError(f"can't test {param} due to {error = }") from None
             else:
                 if not truth:
                     raise OutOfBoundsError(f"{value = } out of bounds for {param}")
@@ -149,7 +149,7 @@ class Parameter:
             try:
                 return self._function(value, obj)
             except (TypeError, ValueError) as error:
-                message = f"Can't parse {paramname} with {self} due to {error = }"
+                message = f"can't parse {paramname} with {self} due to {error = }"
                 raise ParsingError(message) from None
 
         def __repr__(self) -> str:
@@ -187,7 +187,8 @@ class Parameter:
         if self._set is None:
             raise NotSettableError(f"'{self._name}'")
         self._bound(value, obj, self)
-        self._set(obj, value)
+        parsedvalue = self._parseset(value, obj, self)
+        self._set(obj, parsedvalue)
 
     def getter(self, getter=None, *, parser=None):
         """ """
@@ -217,6 +218,6 @@ class Parameter:
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
     if not inspect.isclass(cls):
-        raise ValueError(f"Argument must be a class, not {cls} of {type(cls)}")
+        raise ValueError(f"argument must be a class, not {cls} of {type(cls)}")
     f = inspect.getmro(cls)  # f is for family
     return {k: v for c in f for k, v in c.__dict__.items() if isinstance(v, Parameter)}
