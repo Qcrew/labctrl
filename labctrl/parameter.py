@@ -62,28 +62,28 @@ class Parameter:
                 # continuous value in closed interval [min, max]
                 if len(boundspec) == 2:
                     min, max = boundspec
-                    predicate = lambda value, _: min <= value <= max
+                    predicate = lambda val, _: min <= val <= max
                 # linearly spaced values in closed interval [start, stop, step]
                 elif len(boundspec) == 3:
                     start, stop, step = boundspec
                     interval = np.arange(start, stop + step / 2, step)
-                    predicate = lambda value, _: value in interval
+                    predicate = lambda val, _: val in interval
             # Parameter with a discrete set of values
             elif isinstance(boundspec, set):
-                predicate = lambda value, _: value in boundspec
+                predicate = lambda val, _: val in boundspec
             # Parameter with values of one specified type
             elif inspect.isclass(boundspec):
-                predicate = lambda value, _: isinstance(value, boundspec)
+                predicate = lambda val, _: isinstance(val, boundspec)
             # Parameter with values truth-tested by a user-defined predicate function
             elif inspect.isfunction(boundspec):
                 num_args = len(inspect.signature(boundspec).parameters)
                 stringrep = f"tested by {boundspec.__qualname__}"
                 # function needs a single argument which is the value to be tested
                 if num_args == 1:
-                    predicate = lambda value, _: boundspec(value)
+                    predicate = lambda val, _: boundspec(val)
                 # function also needs the state of the object the Parameter is bound to
                 elif num_args == 2:
-                    predicate = lambda value, obj: boundspec(value, obj)
+                    predicate = lambda val, obj: boundspec(val, obj)
             # Parameter with multiple bound specifications
             else:
                 predicates, stringreps = zip(*(self._parse(spec) for spec in boundspec))
