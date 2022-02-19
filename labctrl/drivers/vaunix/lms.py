@@ -68,9 +68,7 @@ class LabBrick(Instrument):
     def disconnect(self):
         """ """
         self.idle()
-        status = DLL.fnLMS_CloseDevice(self._handle)
-        if status != 0:  # non-zero return values indicate disconnection error
-            raise ConnectionError(f"failed to close {self}")
+        self._errorcheck(DLL.fnLMS_CloseDevice(self._handle))
         self._handle = None
 
     def _errorcheck(self, errorcode: int) -> None:

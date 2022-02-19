@@ -1,11 +1,15 @@
+from numbers import Real
 import random
 from labctrl.instrument import Instrument
 from labctrl.parameter import Parameter
 
+def errorcheck(fn):
+    print(fn)
+    
 class RNG(Instrument):
     """ """
 
-    seed = Parameter()
+    seed = Parameter(bounds=[Real, [1e9, 5e9]])
     number = Parameter()
 
     def connect(self):
@@ -20,5 +24,5 @@ class RNG(Instrument):
         return random.random()
 
 if __name__ == "__main__":
-    rng = RNG(name="RNG", id="X", seed=1)
-    print(rng.snapshot())
+    rng = RNG(name="RNG", id="X", seed=4000000000)
+    print(f"{rng.number = }")
