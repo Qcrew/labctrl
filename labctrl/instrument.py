@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from labctrl.parameter import Parameter, parametrize, NotSettableError
+from labctrl.parameter import Parameter, parametrize
 
 
 class ConnectionError(Exception):
@@ -19,9 +19,10 @@ class InstrumentMetaclass(type):
     def __init__(cls, name, bases, kwds) -> None:
         """ """
         super().__init__(name, bases, kwds)
-        cls._parameters = parametrize(cls)
-        cls._gettables = sorted(k for k, v in cls._parameters.items() if v.is_gettable)
-        cls._settables = sorted(k for k, v in cls._parameters.items() if v.is_settable)
+        _paramdict = parametrize(cls)  # key: parameter name, value: Parameter object
+        cls._parameters = sorted(_paramdict.keys())
+        cls._gettables = {k for k, v in _paramdict.items() if v.is_gettable}
+        cls._settables = {k for k, v in _paramdict.items() if v.is_settable}
         yaml.SafeDumper.add_representer(cls, cls.dump)
         yaml.SafeLoader.add_constructor(name, cls.load)
 
@@ -40,7 +41,6 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         self._name = str(name)
         self._id = id
-        self._handle = None
         self.connect()
         self.configure(**parameters)
 
@@ -51,7 +51,7 @@ class Instrument(metaclass=InstrumentMetaclass):
     @property
     def parameters(self) -> list[str]:
         """ """
-        return sorted(self.__class__._parameters.keys())
+        return self.__class__._parameters
 
     @name.getter
     def name(self) -> str:
@@ -80,7 +80,7 @@ class Instrument(metaclass=InstrumentMetaclass):
         settables = self.__class__._settables
         for name, value in parameters.items():
             if name not in settables:
-                raise NotSettableError(f"can't set '{name}'; {self} has {settables = }")
+                raise AttributeError(f"Can't set '{name}' as {self} has {settables = }")
             setattr(self, name, value)
 
     def snapshot(self) -> dict[str, Any]:
@@ -91,8 +91,8 @@ class Instrument(metaclass=InstrumentMetaclass):
     def dump(cls, dumper: yaml.SafeDumper, instrument: Instrument) -> yaml.MappingNode:
         """ """
         yamltag = cls.__name__
-        gettables, settables = cls._gettables, cls._settables
-        yamlmap = {name: getattr(instrument, name) for name in gettables & settables}
+        yamlkeys = cls._gettables & cls._settables
+        yamlmap = {key: getattr(instrument, key) for key in yamlkeys}
         return dumper.represent_mapping(yamltag, yamlmap)
 
     @classmethod
