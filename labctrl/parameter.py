@@ -1,17 +1,10 @@
 """ """
 
-import functools
 import inspect
 from typing import Any, Type
 
-import numpy as np
-
 
 class BoundsParsingError(Exception):
-    """ """
-
-
-class ParserParsingError(Exception):
     """ """
 
 
@@ -20,18 +13,6 @@ class OutOfBoundsError(Exception):
 
 
 class BoundingError(Exception):
-    """ """
-
-
-class ParsingError(Exception):
-    """ """
-
-
-class NotGettableError(Exception):
-    """ """
-
-
-class NotSettableError(Exception):
     """ """
 
 
@@ -46,7 +27,7 @@ class Parameter:
             try:
                 self._predicate, self._stringrep = self._parse(boundspec)
             except (TypeError, RecursionError, ValueError, UnboundLocalError):
-                message = f"invalid bound specification: {boundspec}"
+                message = f"Invalid bound specification: {boundspec}"
                 raise BoundsParsingError(message) from None
 
         def _parse(self, boundspec):
@@ -57,17 +38,10 @@ class Parameter:
             # unbounded Parameter
             if boundspec is None:
                 predicate = lambda *_: True
-            # Parameter with numeric values in an interval
-            elif isinstance(boundspec, (list, tuple)) and numeric():
-                # continuous value in closed interval [min, max]
-                if len(boundspec) == 2:
-                    min, max = boundspec
-                    predicate = lambda val, _: min <= val <= max
-                # linearly spaced values in closed interval [start, stop, step]
-                elif len(boundspec) == 3:
-                    start, stop, step = boundspec
-                    interval = np.arange(start, stop + step / 2, step)
-                    predicate = lambda val, _: val in interval
+            # Parameter with numeric values inside a closed interval [min, max]
+            elif isinstance(boundspec, list) and numeric() and len(boundspec) == 2:
+                min, max = boundspec
+                predicate = lambda val, _: min <= val <= max
             # Parameter with a discrete set of values
             elif isinstance(boundspec, set):
                 predicate = lambda val, _: val in boundspec
@@ -103,54 +77,12 @@ class Parameter:
             try:
                 truth = self._predicate(value, obj)
             except (TypeError, ValueError) as error:
-                raise BoundingError(f"can't test {param} due to {error = }") from None
+                message = f"Can't validate Parameter '{param}' bounds due to {error = }"
+                raise BoundingError(message) from None
             else:
                 if not truth:
-                    raise OutOfBoundsError(f"{value = } out of bounds for {param}")
-
-        def __repr__(self) -> str:
-            """ """
-            return self._stringrep
-
-    class Parser:
-        """ """
-
-        def __init__(self, parserspec):
-            """ """
-            try:
-                self._function, self._stringrep = self._parse(parserspec)
-            except UnboundLocalError:
-                message = f"invalid parser specification: {parserspec}"
-                raise ParserParsingError(message) from None
-
-        def _parse(self, parserspec):
-            """ """
-            stringrep = str(parserspec)  # default case
-            # do not parse Parameter
-            if parserspec is None:
-                function = lambda val, *_: val
-            # parse Parameter by passing it to a user-specified type
-            elif inspect.isclass(parserspec):
-                function = lambda val, *_: parserspec(val)
-            # parse Parameter by passing it to a user-specified function
-            elif inspect.isfunction(parserspec):
-                num_args = len(inspect.signature(parserspec).parameters)
-                stringrep = f"{parserspec.__qualname__}"
-                # function needs a single argument which is the value to be parsed
-                if num_args == 1:
-                    function = lambda val, *_: parserspec(val)
-                # function also needs the state of the object the Parameter is bound to
-                elif num_args == 2:
-                    function = lambda val, obj: parserspec(val, obj)
-            return function, stringrep
-
-        def __call__(self, value, obj, paramname):
-            """ """
-            try:
-                return self._function(value, obj)
-            except (TypeError, ValueError) as error:
-                message = f"can't parse {paramname} with {self} due to {error = }"
-                raise ParsingError(message) from None
+                    message = f"Parameter '{param}' {value = } is out of bounds {self}"
+                    raise OutOfBoundsError(message)
 
         def __repr__(self) -> str:
             """ """
@@ -160,8 +92,7 @@ class Parameter:
         """ """
         self._name = None  # updated by __set_name__()
         self._bound = self.Bounds(bounds)
-        self._get, self._parseget = None, None  # updated by getter()
-        self._set, self._parseset = None, None  # updated by setter()
+        self._get, self._set = None, None  # updated by getter() and setter()
 
     def __repr__(self) -> str:
         """ """
@@ -173,51 +104,47 @@ class Parameter:
 
     def __get__(self, obj: Any, cls: Type[Any] = None) -> Any:
         """ """
-        if obj is None:
+        if obj is None:  # user wants to inspect this Parameter's object representation
             return self
-        if self._get is None:
-            raise NotGettableError(f"'{self._name}'")
-        rawvalue = self._get(obj)
-        parsedvalue = self._parseget(rawvalue, obj, self)
-        self._bound(parsedvalue, obj, self._name)
-        return parsedvalue
+
+        if self._get is None:  # user has not specified a getter for this Parameter
+            raise AttributeError(f"Parameter '{self._name}' is not gettable")
+
+        value = self._get(obj)
+        self._bound(value, obj, self._name)  # validate the value that was got
+        return value
 
     def __set__(self, obj: Any, value: Any) -> Any:
         """ """
-        if self._set is None:
-            raise NotSettableError(f"'{self._name}'")
-        self._bound(value, obj, self)
-        parsedvalue = self._parseset(value, obj, self)
-        self._set(obj, parsedvalue)
+        if self._set is None:  # user has not specified a setter for this Parameter
+            raise AttributeError(f"Parameter '{self._name}' is not settable")
+        self._bound(value, obj, self)  # validate the value to be set
+        self._set(obj, value)
 
-    def getter(self, getter=None, *, parser=None):
+    def getter(self, getter):
         """ """
-        if getter is None:
-            return functools.partial(self.getter, parser=parser)
-        self._parseget = self.Parser(parser)
         self._get = getter
         return self
 
     @property
     def is_gettable(self) -> bool:
+        """ """
         return self._get is not None
 
-    def setter(self, setter=None, *, parser=None):
+    def setter(self, setter):
         """ """
-        if setter is None:
-            return functools.partial(self.setter, parser=parser)
-        self._parseset = self.Parser(parser)
         self._set = setter
         return self
 
     @property
     def is_settable(self) -> bool:
+        """ """
         return self._set is not None
 
 
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
     if not inspect.isclass(cls):
-        raise ValueError(f"argument must be a class, not {cls} of {type(cls)}")
+        raise ValueError(f"Argument must be a Python class, not '{cls}' of {type(cls)}")
     f = inspect.getmro(cls)  # f is for family
     return {k: v for c in f for k, v in c.__dict__.items() if isinstance(v, Parameter)}
