@@ -11,6 +11,7 @@ from labctrl.parameter import Parameter
 
 DLL = CDLL(str(Path(__file__).parent / "lms.dll"))  # driver
 
+# TODO add PLL information
 
 _UNIT_FREQUENCY = 10.0
 
