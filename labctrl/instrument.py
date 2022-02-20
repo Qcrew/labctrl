@@ -8,6 +8,7 @@ import yaml
 
 from labctrl.parameter import Parameter, parametrize
 
+# TODO write outer yaml dumping
 
 class ConnectionError(Exception):
     """ """
@@ -34,9 +35,6 @@ class InstrumentMetaclass(type):
 class Instrument(metaclass=InstrumentMetaclass):
     """ """
 
-    name = Parameter()
-    id = Parameter()
-
     def __init__(self, name: str, id: Any, **parameters) -> None:
         """ """
         self._name = str(name)
@@ -53,12 +51,12 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         return self.__class__._parameters
 
-    @name.getter
+    @property
     def name(self) -> str:
         """ """
         return self._name
 
-    @id.getter
+    @property
     def id(self) -> Any:
         """ """
         return self._id
@@ -91,8 +89,9 @@ class Instrument(metaclass=InstrumentMetaclass):
     def dump(cls, dumper: yaml.SafeDumper, instrument: Instrument) -> yaml.MappingNode:
         """ """
         yamltag = cls.__name__
-        yamlkeys = cls._gettables & cls._settables
+        yamlkeys = ["name", "id", *sorted(cls._gettables & cls._settables)]
         yamlmap = {key: getattr(instrument, key) for key in yamlkeys}
+        print(yamlmap)
         return dumper.represent_mapping(yamltag, yamlmap)
 
     @classmethod
