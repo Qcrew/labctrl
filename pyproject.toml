@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "labctrl"
 version = "0.1.0"
-description = ""
+description = "A unified framework for controlling programmable lab instruments"
 authors = ["Atharv Joshi <atharvjoshi@ymail.com>"]
 
 [tool.poetry.dependencies]
