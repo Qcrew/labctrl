@@ -85,7 +85,7 @@ class LMS(Instrument):
                 self._handle = handle
                 return
             raise ConnectionError(f"Failed to connect {self}")
-        raise ConnectionError(f"Can't find {self}, please check the USB connection")
+        raise ConnectionError(f"{self} is not available for connection")
 
     def idle(self):
         """ """
