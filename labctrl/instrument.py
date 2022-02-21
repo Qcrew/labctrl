@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import Pyro5.api as pyro
 import yaml
 
 from labctrl.parameter import Parameter, parametrize
 
 # TODO write outer yaml dumping
+
 
 class ConnectionError(Exception):
     """ """
@@ -32,6 +34,7 @@ class InstrumentMetaclass(type):
         return f"<class '{cls.__name__}>"
 
 
+@pyro.expose
 class Instrument(metaclass=InstrumentMetaclass):
     """ """
 
