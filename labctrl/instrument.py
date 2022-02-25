@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import Pyro5.api as pyro
 import yaml
 
-from labctrl.parameter import Parameter, parametrize
-
-# TODO write outer yaml dumping
+from labctrl.parameter import parametrize
 
 
 class ConnectionError(Exception):
@@ -34,7 +31,6 @@ class InstrumentMetaclass(type):
         return f"<class '{cls.__name__}>"
 
 
-@pyro.expose
 class Instrument(metaclass=InstrumentMetaclass):
     """ """
 
@@ -64,17 +60,22 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         return self._id
 
+    @property
+    def status(self) -> bool:
+        """ """
+        raise NotImplementedError("subclasses must implement `status`")
+
     def connect(self) -> None:
         """ """
-        raise NotImplementedError("subclasses must implement connect()")
+        raise NotImplementedError("subclasses must implement `connect()`")
 
     def idle(self) -> None:
         """ """
-        raise NotImplementedError("subclasses must implement idle()")
+        raise NotImplementedError("subclasses must implement `idle()`")
 
     def disconnect(self) -> None:
         """ """
-        raise NotImplementedError("subclasses must implement disconnect()")
+        raise NotImplementedError("subclasses must implement `disconnect()`")
 
     def configure(self, **parameters) -> None:
         """ """
