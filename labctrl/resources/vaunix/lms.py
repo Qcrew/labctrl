@@ -12,6 +12,7 @@ from labctrl.parameter import Parameter
 DLL = CDLL(str(Path(__file__).parent / "lms.dll"))  # driver
 
 _UNIT_FREQUENCY = 10.0
+_UNIT_POWER = 0.25
 
 
 def _to_frequency(value: int) -> float:
@@ -27,9 +28,6 @@ def _from_frequency(value: int) -> int:
 def _bound_frequency(value: float, lms: LMS) -> bool:
     """ """
     return lms.min_frequency <= value <= lms.max_frequency
-
-
-_UNIT_POWER = 0.25
 
 
 def _to_power(value: int) -> float:
@@ -51,6 +49,7 @@ class LMS(Instrument):
     """ """
 
     rf = Parameter(bounds=(bool, {0, 1}))
+    pll = Parameter(bounds=bool)
     frequency = Parameter(bounds=[Real, _bound_frequency])
     power = Parameter(bounds=[Real, _bound_power])
 
@@ -60,7 +59,12 @@ class LMS(Instrument):
         super().__init__(name, id, **parameters)
         DLL.fnLMS_SetTestMode(False)  # we are using actual hardware
         DLL.fnLMS_SetUseInternalRef(self._handle, False)  # use external 10MHz reference
-        self.idle()
+        self.rf = False
+
+    @property
+    def status(self) -> bool:
+        """ """
+        return DLL.fnLMS_GetDeviceStatus(self._handle) > 0
 
     def connect(self) -> None:
         """ """
@@ -81,13 +85,9 @@ class LMS(Instrument):
             raise ConnectionError(f"Failed to connect {self}")
         raise ConnectionError(f"{self} is not available for connection")
 
-    def idle(self):
-        """ """
-        self.rf = False
-
     def disconnect(self):
         """ """
-        self.idle()
+        self.rf = False
         self._errorcheck(DLL.fnLMS_CloseDevice(self._handle))
         self._handle = None
 
@@ -107,6 +107,11 @@ class LMS(Instrument):
     def rf(self, value: bool) -> None:
         """ """
         self._errorcheck(DLL.fnLMS_SetRFOn(self._handle, value))
+
+    @pll.getter
+    def pll(self) -> bool:
+        """ The hex code for PLL_LOCKED flag is 0x00000040 in vnx_LMS_api.h """
+        return DLL.fnLMS_GetDeviceStatus(self._handle) == 64
 
     @property
     def min_frequency(self) -> float:
