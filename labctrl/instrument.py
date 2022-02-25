@@ -69,10 +69,6 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         raise NotImplementedError("subclasses must implement `connect()`")
 
-    def idle(self) -> None:
-        """ """
-        raise NotImplementedError("subclasses must implement `idle()`")
-
     def disconnect(self) -> None:
         """ """
         raise NotImplementedError("subclasses must implement `disconnect()`")
