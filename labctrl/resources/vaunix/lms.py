@@ -11,8 +11,6 @@ from labctrl.parameter import Parameter
 
 DLL = CDLL(str(Path(__file__).parent / "lms.dll"))  # driver
 
-# TODO add PLL information
-
 _UNIT_FREQUENCY = 10.0
 
 
@@ -53,11 +51,7 @@ class LMS(Instrument):
     """ """
 
     rf = Parameter(bounds=(bool, {0, 1}))
-    min_frequency = Parameter()
-    max_frequency = Parameter()
     frequency = Parameter(bounds=[Real, _bound_frequency])
-    min_power = Parameter()
-    max_power = Parameter()
     power = Parameter(bounds=[Real, _bound_power])
 
     def __init__(self, name: str, id: int, **parameters) -> None:
@@ -114,12 +108,12 @@ class LMS(Instrument):
         """ """
         self._errorcheck(DLL.fnLMS_SetRFOn(self._handle, value))
 
-    @min_frequency.getter
+    @property
     def min_frequency(self) -> float:
         """ """
         return _to_frequency(DLL.fnLMS_GetMinFreq(self._handle))
 
-    @max_frequency.getter
+    @property
     def max_frequency(self) -> float:
         """ """
         return _to_frequency(DLL.fnLMS_GetMaxFreq(self._handle))
@@ -135,12 +129,12 @@ class LMS(Instrument):
         parsedvalue = _from_frequency(value)
         self._errorcheck(DLL.fnLMS_SetFrequency(self._handle, parsedvalue))
 
-    @min_power.getter
+    @property
     def min_power(self) -> float:
         """ """
         return _to_power(DLL.fnLMS_GetMinPwr(self._handle))
 
-    @max_power.getter
+    @property
     def max_power(self) -> float:
         """ """
         return _to_power(DLL.fnLMS_GetMaxPwr(self._handle))
