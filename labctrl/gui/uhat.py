@@ -1,13 +1,20 @@
 """ Our main app is called UHat """
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QFileDialog,
+    QDialog,
 )
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction
 from __feature__ import snake_case, true_property
+
+from labctrl import stage
+from labctrl.gui.settings import CONFIGFOLDER
+from labctrl.gui.stagehand import Stagehand
 
 APPNAME = "UHat"
 
@@ -18,6 +25,8 @@ class UHatWindow(QMainWindow):
     def __init__(self):
         """ """
         super().__init__()
+
+        self.resources = None
 
         self.window_title = APPNAME
 
@@ -42,15 +51,18 @@ class UHatWindow(QMainWindow):
     def load_stage(self):
         """ """
         filepath = QFileDialog.get_open_file_name(
-            parent=self, caption="Select config file", filter="*.yaml *.yml"
+            parent=self,
+            caption="Select config file",
+            dir=str(CONFIGFOLDER),
+            filter="*.yaml *.yml",
         )[0]
+        #self.resources = stage.load(Path(filepath))
         print(filepath)
 
     @Slot()
     def create_stage(self):
         """ """
-        # open stagehand dialog and let it do its thing
-
+        Stagehand(parent=self).exec()
 
 
 if __name__ == "__main__":
