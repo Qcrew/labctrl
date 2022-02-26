@@ -10,13 +10,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction
-from __feature__ import snake_case, true_property
 
 from labctrl import stage
 from labctrl.gui.settings import CONFIGFOLDER
-from labctrl.gui.stagehand import Stagehand
-
-APPNAME = "UHat"
+from labctrl.gui.stagehand import StageBuilder
 
 
 class UHatWindow(QMainWindow):
@@ -28,41 +25,45 @@ class UHatWindow(QMainWindow):
 
         self.resources = None
 
-        self.window_title = APPNAME
+        self.setWindowTitle("UHat")
 
-        self.menu = self.menu_bar()
-        self.stage_menu = self.menu.add_menu("Stage")
-        self.measure_menu = self.menu.add_menu("Measure")
-        self.settings_menu = self.menu.add_menu("Settings")
-        self.help_menu = self.menu.add_menu("Help")
+        self.menu = self.menuBar()
+        self.stage_menu = self.menu.addMenu("Stage")
+        self.measure_menu = self.menu.addMenu("Experiments")
+        self.settings_menu = self.menu.addMenu("Settings")
+        self.help_menu = self.menu.addMenu("Help")
 
-        create_stage = QAction("Create", self)
-        create_stage.triggered.connect(self.create_stage)
-        self.stage_menu.add_action(create_stage)
+        build_stage = QAction("Build", self)
+        build_stage.triggered.connect(self.build_stage)
+        self.stage_menu.addAction(build_stage)
 
         load_stage = QAction("Load", self)
         load_stage.triggered.connect(self.load_stage)
-        self.stage_menu.add_action(load_stage)
+        self.stage_menu.addAction(load_stage)
 
         teardown_stage = QAction("Teardown", self)
-        self.stage_menu.add_action(teardown_stage)
+        self.stage_menu.addAction(teardown_stage)
+
+        geometry = self.screen().availableGeometry()
+        self.setMinimumSize(geometry.width() * 0.8, geometry.height() * 0.8)
+        self.showMaximized()
 
     @Slot()
     def load_stage(self):
         """ """
-        filepath = QFileDialog.get_open_file_name(
+        filepath = QFileDialog.getOpenFileName(
             parent=self,
             caption="Select config file",
             dir=str(CONFIGFOLDER),
-            filter="*.yaml *.yml",
+            filter="*.yml",
         )[0]
-        #self.resources = stage.load(Path(filepath))
+        # self.resources = stage.load(Path(filepath))
         print(filepath)
 
     @Slot()
-    def create_stage(self):
+    def build_stage(self):
         """ """
-        Stagehand(parent=self).exec()
+        StageBuilder(parent=self).exec()
 
 
 if __name__ == "__main__":
