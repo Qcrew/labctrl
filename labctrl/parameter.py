@@ -158,6 +158,12 @@ class Parameter:
         """ """
         return self._default
 
+    @property
+    def has_default(self) -> bool:
+        """ """
+        return self._default is not _MISSING
+
+
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
     if not inspect.isclass(cls):
