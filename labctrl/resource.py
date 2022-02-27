@@ -16,10 +16,10 @@ class ResourceMetaclass(type):
         """ """
         super().__init__(name, bases, kwds)
 
-        _paramdict = parametrize(cls)  # key: parameter name, value: Parameter object
-        cls._defaults = {k: v.default for k, v in _paramdict.items() if v.has_default}
-        cls._gettables = {k for k, v in _paramdict.items() if v.is_gettable}
-        cls._settables = {k for k, v in _paramdict.items() if v.is_settable}
+        cls._params = parametrize(cls)  # key: parameter name, value: Parameter object
+        cls._defaults = {k: v.default for k, v in cls._params.items() if v.has_default}
+        cls._gettables = {k for k, v in cls._params.items() if v.is_gettable}
+        cls._settables = {k for k, v in cls._params.items() if v.is_settable}
 
         yaml.SafeDumper.add_representer(cls, cls.dump)
         yaml.SafeLoader.add_constructor(name, cls.load)
@@ -32,28 +32,28 @@ class ResourceMetaclass(type):
 class Resource(metaclass=ResourceMetaclass):
     """ """
 
+    name = Parameter()
+
     def __init__(self, name: str, **parameters) -> None:
         """ """
         self._name = str(name)
         # set parameters with default values (if present) if not supplied by the user
-        self.configure(**{**self._defaults, **parameters})
+        self.configure(**{**self.__class__._defaults, **parameters})
 
     def __repr__(self) -> str:
         """ """
         return f"{self.__class__.__name__} '{self._name}'"
 
-    @property
+    @name.getter
     def name(self) -> str:
         """ """
         return self._name
 
     def configure(self, **parameters) -> None:
         """ """
-        settables = self.__class__._settables
         for name, value in parameters.items():
-            if name not in settables:
-                raise AttributeError(f"Can't set '{name}' as {self} has {settables = }")
-            setattr(self, name, value)
+            if name in self.__class__._settables:
+                setattr(self, name, value)
 
     def snapshot(self) -> dict[str, Any]:
         """ """
@@ -63,9 +63,8 @@ class Resource(metaclass=ResourceMetaclass):
     def dump(cls, dumper: yaml.SafeDumper, resource: Resource) -> yaml.MappingNode:
         """ """
         yamltag = cls.__name__
-        yamlkeys = ["name", "id", *sorted(cls._gettables & cls._settables)]
+        yamlkeys = cls._params.keys() & cls._gettables
         yamlmap = {key: getattr(resource, key) for key in yamlkeys}
-        print(yamlmap)
         return dumper.represent_mapping(yamltag, yamlmap)
 
     @classmethod
