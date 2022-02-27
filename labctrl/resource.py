@@ -6,72 +6,46 @@ from typing import Any
 
 import yaml
 
-from labctrl.parameter import parametrize
+from labctrl.parameter import Parameter, parametrize
 
 
-class ConnectionError(Exception):
-    """ """
-
-
-class InstrumentMetaclass(type):
+class ResourceMetaclass(type):
     """ """
 
     def __init__(cls, name, bases, kwds) -> None:
         """ """
         super().__init__(name, bases, kwds)
+
         _paramdict = parametrize(cls)  # key: parameter name, value: Parameter object
-        cls._parameters = sorted(_paramdict.keys())
+        cls._defaults = {k: v.default for k, v in _paramdict.items() if v.has_default}
         cls._gettables = {k for k, v in _paramdict.items() if v.is_gettable}
         cls._settables = {k for k, v in _paramdict.items() if v.is_settable}
+
         yaml.SafeDumper.add_representer(cls, cls.dump)
         yaml.SafeLoader.add_constructor(name, cls.load)
 
     def __repr__(cls) -> str:
         """ """
-        return f"<class '{cls.__name__}>"
+        return f"<class '{cls.__name__}'>"
 
 
-class Instrument(metaclass=InstrumentMetaclass):
+class Resource(metaclass=ResourceMetaclass):
     """ """
 
-    def __init__(self, name: str, id: Any, **parameters) -> None:
+    def __init__(self, name: str, **parameters) -> None:
         """ """
         self._name = str(name)
-        self._id = id
-        self.connect()
-        self.configure(**parameters)
+        # set parameters with default values (if present) if not supplied by the user
+        self.configure(**{**self._defaults, **parameters})
 
     def __repr__(self) -> str:
         """ """
-        return f"{self._name}-{self._id}"
-
-    @property
-    def parameters(self) -> list[str]:
-        """ """
-        return self.__class__._parameters
+        return f"{self.__class__.__name__} '{self._name}'"
 
     @property
     def name(self) -> str:
         """ """
         return self._name
-
-    @property
-    def id(self) -> Any:
-        """ """
-        return self._id
-
-    @property
-    def status(self) -> bool:
-        """ """
-        raise NotImplementedError("subclasses must implement `status`")
-
-    def connect(self) -> None:
-        """ """
-        raise NotImplementedError("subclasses must implement `connect()`")
-
-    def disconnect(self) -> None:
-        """ """
-        raise NotImplementedError("subclasses must implement `disconnect()`")
 
     def configure(self, **parameters) -> None:
         """ """
@@ -86,11 +60,11 @@ class Instrument(metaclass=InstrumentMetaclass):
         return {name: getattr(self, name) for name in self.__class__._gettables}
 
     @classmethod
-    def dump(cls, dumper: yaml.SafeDumper, instrument: Instrument) -> yaml.MappingNode:
+    def dump(cls, dumper: yaml.SafeDumper, resource: Resource) -> yaml.MappingNode:
         """ """
         yamltag = cls.__name__
         yamlkeys = ["name", "id", *sorted(cls._gettables & cls._settables)]
-        yamlmap = {key: getattr(instrument, key) for key in yamlkeys}
+        yamlmap = {key: getattr(resource, key) for key in yamlkeys}
         print(yamlmap)
         return dumper.represent_mapping(yamltag, yamlmap)
 
@@ -99,3 +73,41 @@ class Instrument(metaclass=InstrumentMetaclass):
         """ """
         yamlmap = loader.construct_mapping(node, deep=True)
         return cls(**yamlmap)
+
+
+class ConnectionError(Exception):
+    """ """
+
+
+class Instrument(Resource):
+    """ """
+
+    id = Parameter()
+
+    def __init__(self, id: Any, **parameters) -> None:
+        """ """
+        self._id = id
+        self.connect()
+        super().__init(**parameters)
+
+    def __repr__(self) -> str:
+        """ """
+        return f"{self.__class__.__name__} #{self._id}"
+
+    @property
+    def id(self) -> Any:
+        """ """
+        return self._id
+
+    @property
+    def status(self) -> bool:
+        """ """
+        raise NotImplementedError("Instrument subclasses must implement `status`")
+
+    def connect(self) -> None:
+        """ """
+        raise NotImplementedError("Instrument subclasses must implement `connect()`")
+
+    def disconnect(self) -> None:
+        """ """
+        raise NotImplementedError("Instrument subclasses must implement `disconnect()`")
