@@ -1,8 +1,5 @@
 """ """
 
-# THIS IS THE GUI! run an event loop
-# 1. load config and / or create new config
-
 from pathlib import Path
 
 import yaml
