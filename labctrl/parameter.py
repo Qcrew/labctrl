@@ -16,6 +16,14 @@ class BoundingError(Exception):
     """ """
 
 
+class _MISSING:
+    """Sentinel for missing parameter default value"""
+
+    def __repr__(self):
+        """ """
+        return "<MISSING>"
+
+
 class Parameter:
     """ """
 
@@ -88,15 +96,19 @@ class Parameter:
             """ """
             return self._stringrep
 
-    def __init__(self, bounds=None):
+    def __init__(self, bounds=None, default=_MISSING):
         """ """
         self._name = None  # updated by __set_name__()
         self._bound = self.Bounds(bounds)
+        self._default = default  # default value of the parameter
         self._get, self._set = None, None  # updated by getter() and setter()
 
     def __repr__(self) -> str:
         """ """
-        return f"{self.__class__.__name__}('{self._name}', bounds = {self._bound})"
+        return (
+            f"{self.__class__.__name__}('{self._name}', bounds = {self._bound}, "
+            f"default = {self._default})"
+        )
 
     def __set_name__(self, cls: Type[Any], name: str) -> None:
         """ """
@@ -141,6 +153,10 @@ class Parameter:
         """ """
         return self._set is not None
 
+    @property
+    def default(self) -> Any:
+        """ """
+        return self._default
 
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
