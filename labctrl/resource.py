@@ -1,4 +1,4 @@
-""" """
+""" A resource is the encapsulation of objects used in measurements - an instrument, a sample """
 
 from __future__ import annotations
 
@@ -63,9 +63,7 @@ class Resource(metaclass=ResourceMetaclass):
     def dump(cls, dumper: yaml.SafeDumper, resource: Resource) -> yaml.MappingNode:
         """ """
         yamltag = cls.__name__
-        yamlkeys = cls._params.keys() & cls._gettables
-        yamlmap = {key: getattr(resource, key) for key in yamlkeys}
-        return dumper.represent_mapping(yamltag, yamlmap)
+        return dumper.represent_mapping(yamltag, resource.snapshot())
 
     @classmethod
     def load(cls, loader: yaml.SafeLoader, node: yaml.MappingNode):
@@ -93,7 +91,7 @@ class Instrument(Resource):
         """ """
         return f"{self.__class__.__name__} #{self._id}"
 
-    @property
+    @id.getter
     def id(self) -> Any:
         """ """
         return self._id
