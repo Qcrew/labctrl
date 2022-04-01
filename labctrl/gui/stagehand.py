@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QComboBox,
     QPushButton,
+    QCheckBox,
     QVBoxLayout,
     QButtonGroup,
     QApplication,
@@ -18,9 +19,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QDialog,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Slot
 
-from labctrl.gui.settings import CONFIGFOLDER
+from labctrl import stage
+from labctrl.gui.settings import Settings
 
 
 class StageBuilder(QDialog):
@@ -30,12 +32,19 @@ class StageBuilder(QDialog):
         """ """
         super().__init__(*args, **kwargs)
 
+        self.settings = Settings()
+        # set of Resource classes
+        resource_classes = stage.locate(self.settings.resourcepath)
+        self.resource_names = sorted(cls.__name__ for cls in resource_classes)
+
         self.setWindowTitle("Stage Builder")
 
         # stage and unstage buttons
         self.button_group_box = QGroupBox()
         self.stage_button = QPushButton("Stage another resource")
+        self.stage_button.clicked.connect(self.add_combo_box)
         self.unstage_button = QPushButton("Unstage selected resource(s)")
+        self.unstage_button.setEnabled(False)
         self.buttons_layout = QHBoxLayout()
         self.buttons_layout.addWidget(self.stage_button)
         self.buttons_layout.addWidget(self.unstage_button)
@@ -68,26 +77,30 @@ class StageBuilder(QDialog):
         self.main_layout.addWidget(self.scroll_area)
         self.main_layout.addWidget(self.filename_group_box)
         self.main_layout.addWidget(self.connect_button)
-
+        
         # add nominal combo box (1st resource to be staged)
-        self.resource_selector = QComboBox()
-        self.scroll_panel_layout.addWidget(self.resource_selector)
-
-        # add a central 'add' button that shows a combo box below (list)
-        # combo box which shows available resource classes you can add to config
-        # how to retrieve resource classes ?
-        # once object selected in combo box show its params below... how to get these?
-        # user fills values, adds more resources if needed,
-        # once compulsory ones are filled, allow them to click DONE and exit dialog
-        # how to know when compulsory values are filled ??
-        # basically, how to do form input validation ??
-        # exiting dialog automatically saves file in configfolder if input is valid
-        # caveat: need instrument connected to PC in order to create and save the config
-        # if input is invalid, dialog will inform user
-        # this should be a modal dialog as it is separate from the main app
+        self.add_combo_box()
 
         geometry = self.screen().availableGeometry()
         self.setFixedSize(geometry.width() * 0.5, geometry.height() * 0.8)
+
+    @Slot()
+    def add_combo_box(self):
+        """ """
+        combo_box_group = QGroupBox()
+        combo_box_group.setFlat(True)
+        combo_box = QComboBox()
+        combo_box.setPlaceholderText("Select a resource...")
+        combo_box.addItems(self.resource_names)
+        check_box = QCheckBox()
+        combo_box_layout = QHBoxLayout()
+        combo_box_layout.setContentsMargins(0, 0, 0, 0)
+        combo_box_layout.addWidget(combo_box, 95)
+        combo_box_layout.addWidget(check_box, 5)
+        combo_box_layout.setAlignment(check_box, Qt.AlignCenter)
+        combo_box_group.setLayout(combo_box_layout)
+
+        self.scroll_panel_layout.addWidget(combo_box_group)
 
 
 if __name__ == "__main__":
