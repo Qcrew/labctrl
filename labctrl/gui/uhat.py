@@ -12,16 +12,18 @@ from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction
 
 from labctrl import stage
-from labctrl.gui.settings import CONFIGFOLDER
+from labctrl.gui.settings import Settings
 from labctrl.gui.stagehand import StageBuilder
 
 
-class UHatWindow(QMainWindow):
+class UHat(QMainWindow):
     """ """
 
     def __init__(self):
         """ """
         super().__init__()
+
+        self.settings = Settings()
 
         self.resources = None
 
@@ -54,7 +56,7 @@ class UHatWindow(QMainWindow):
         filepath = QFileDialog.getOpenFileName(
             parent=self,
             caption="Select config file",
-            dir=str(CONFIGFOLDER),
+            dir=str(self.settings.configpath),
             filter="*.yml",
         )[0]
         # self.resources = stage.load(Path(filepath))
@@ -68,6 +70,6 @@ class UHatWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication([])
-    uhat = UHatWindow()
+    uhat = UHat()
     uhat.show()
     app.exec()
