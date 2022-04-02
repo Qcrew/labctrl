@@ -4,9 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import yaml
 
 from labctrl.parameter import Parameter, parametrize
+
+
+def _sci_notation_representer(dumper, value) -> yaml.ScalarNode:
+    """ """
+    # use scientific notation if abs(value) >= threshold
+    threshold = 1e3  # based on the feeling that values > 1e3 are better read in sci not
+    yaml_float_tag = "tag:yaml.org,2002:float"
+    value_in_sci_not = f"{value:E}" if abs(value) >= threshold else str(value)
+    return dumper.represent_scalar(yaml_float_tag, value_in_sci_not)
 
 
 class ResourceMetaclass(type):
@@ -23,6 +33,10 @@ class ResourceMetaclass(type):
 
         yaml.SafeDumper.add_representer(cls, cls.dump)
         yaml.SafeLoader.add_constructor(name, cls.load)
+
+        # customise dumper to represent float values in scientific notation
+        yaml.SafeDumper.add_representer(float, _sci_notation_representer)
+        yaml.SafeDumper.add_multi_representer(np.floating, _sci_notation_representer)
 
     def __repr__(cls) -> str:
         """ """
@@ -100,6 +114,24 @@ class Instrument(Resource):
     def status(self) -> bool:
         """ """
         raise NotImplementedError("Instrument subclasses must implement `status`")
+
+    def configure(self, **parameters) -> None:
+        """ """
+        if not self.status:
+            message = (
+                f"{self} cannot be configured as it has disconnected\n"
+                f"Please check the physical connection and try to reconnect"
+            )
+            raise ConnectionError(message)
+        super().configure(**parameters)
+
+    def snapshot(self) -> dict[str, Any]:
+        """ """
+        if not self.status:
+            # TODO upgrade to logger warning
+            print(f"WARNING: {self} has disconnected, returning minimal snapshot")
+            return {"name": self.name, "id": self.id}
+        super().snapshot()
 
     def connect(self) -> None:
         """ """
