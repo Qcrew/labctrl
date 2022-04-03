@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-
+from labctrl.logger import logger
 from labctrl.parameter import Parameter, parametrize
 
 
@@ -38,6 +37,7 @@ class Resource(metaclass=ResourceMetaclass):
     def __init__(self, name: str, **parameters) -> None:
         """ """
         self._name = str(name)
+        logger.info(f"Initialized {self}")
         # set parameters with default values (if present) if not supplied by the user
         self.configure(**{**self.__class__._defaults, **parameters})
 
@@ -50,12 +50,21 @@ class Resource(metaclass=ResourceMetaclass):
         """ """
         return self._name
 
+    @property
+    def parameters(self) -> list[str]:
+        """ """
+        return [repr(parameter) for parameter in self.__class__._params.values()]
+
     def configure(self, **parameters) -> None:
         """ """
         for name, value in parameters.items():
             if name in self.__class__._settables:
                 setattr(self, name, value)
-            # TODO else raise warning logger
+                logger.info(f"Set {self} {name} = {value}")
+            else:
+                logger.warning(
+                    f"Ignored {name} as it is not a settable parameter of {self}"
+                )
 
     def snapshot(self) -> dict[str, Any]:
         """ """
