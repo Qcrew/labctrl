@@ -123,18 +123,39 @@ class Stagehand:
     """client context manager"""
 
     def __init__(self, *configpaths: Path) -> None:
-        """accept multiple configpaths, local objects only..."""
+        """ """
+        self._stage = Stage(*configpaths)
+
+        # set resource names as stage attributes for easy access
+        for name, resource in self._stage.services.items():
+            setattr(self._stage, name, resource)
+
+        # connect to remote stage, if available
+        self._proxies: list[pyro.Proxy] = []
+        with pyro.Proxy(_STAGE_URI) as remote_stage:
+            for name, uri in remote_stage.services.items():
+                print(f"found remote resource with {name = } at {uri = }")
+                proxy = pyro.Proxy(uri)
+                self._proxies.append(proxy)
+                setattr(self._stage, name, proxy)
+                print(f"set stage attribute '{name}'")
+
+    @property
+    def stage(self) -> Stage:
+        """ """
+        return self._stage
 
     def __enter__(self) -> Stage:
         """ """
-        return self.stage
-
-    def _stage(self) -> None:
-        """ """
+        return self._stage
 
     def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         """ """
-        # check for connection before tearing down, tear down gracefully !
+        self._stage.teardown()
+
+        # release proxies, if any
+        for proxy in self._proxies.values():
+            proxy._pyroRelease()
 
 
 def _is_resource(cls) -> bool:
