@@ -59,7 +59,7 @@ class Stage:
             resources = yml.load(configpath)
             self._config[configpath] = resources
             num_resources += len(resources)
-            logger.info(f"Found {len(resources)} in '{configpath.stem}'.")
+            logger.info(f"Found {len(resources)} resource(s) in '{configpath.name}'.")
 
             for resource in resources:
                 try:
