@@ -106,8 +106,9 @@ class Parameter:
     def __repr__(self) -> str:
         """ """
         return (
-            f"{self.__class__.__name__}('{self._name}', bounds = {self._bound}, "
-            f"default = {self._default})"
+            f"{self.__class__.__name__}(name = {self._name}, default = {self._default}"
+            f", gettable = {self.is_gettable}, settable = {self.is_settable}, "
+            f"bounds = {self._bound})"
         )
 
     def __set_name__(self, cls: Type[Any], name: str) -> None:
