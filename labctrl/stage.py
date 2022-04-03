@@ -14,6 +14,7 @@ import time
 import Pyro5.api as pyro
 import Pyro5.errors
 
+from labctrl.logger import logger
 from labctrl.parameter import Parameter
 from labctrl.resource import Resource, Instrument
 import labctrl.yamlizer as yml
@@ -30,11 +31,13 @@ class StagingError(Exception):
 
 @pyro.expose
 class Stage:
-    """server"""
+    """ """
 
     def __init__(self, *configpaths: Path, daemon: pyro.Daemon | None = None) -> None:
         """configpaths: path to YAML file containing Resource classes to be instantiated
         daemon: if not None, this stage will be a remote stage that serves the Resources in the configpath remotely with Pyro. you can send in multiple configpaths, the resources will be bundled up on the same stage."""
+
+        logger.debug("Initializing a stage...")
 
         # self._config and self._services will be updated by _setup()
         self._config = {}  # dict with key: configpath, value: list of Resources
@@ -56,6 +59,7 @@ class Stage:
             resources = yml.load(configpath)
             self._config[configpath] = resources
             num_resources += len(resources)
+            logger.info(f"Found {len(resources)} in '{configpath.stem}'.")
 
             for resource in resources:
                 try:
@@ -86,10 +90,11 @@ class Stage:
                 raise StagingError(message) from None
 
             self._services[name] = uri
-            print(f"served {resource = } at {uri}")
+            logger.info(f"Served '{resource}' remotely at '{uri}'.")
 
     def save(self) -> None:
         """save current state state to respective yaml configs"""
+        logger.debug(f"Saving the current state of staged resources to configs...")
         for configpath, resources in self._config.items():
             yml.dump(configpath, *resources)
 
@@ -109,11 +114,15 @@ class Stage:
                 try:
                     resource.disconnect()
                 except ConnectionError:
-                    # TODO upgrade to logger warning
-                    print(f"WARNING - can't disconnect {resource = }, connection error")
+                    logger.warning(
+                        f"Can't disconnect '{resource}' due to a connection error. "
+                        f"Please check the physical connection and re-setup the stage."
+                    )
 
         if self._daemon is not None:
             self._daemon.shutdown()
+
+        logger.debug("Tore down the stage gracefully!")
 
 
 class Stagehand:
@@ -121,24 +130,32 @@ class Stagehand:
 
     def __init__(self, *configpaths: Path) -> None:
         """ """
+        logger.debug("Initializing a stagehand...")
+
         self._stage = Stage(*configpaths)
         # set resource names as stage attributes for easy access
         for name, resource in self._stage.services.items():
             setattr(self._stage, name, resource)
+            logger.info(f"Set stage attribute '{name}'.")
 
         # connect to remote stage, if available
         self._proxies: list[pyro.Proxy] = []
         try:
             with pyro.Proxy(_STAGE_URI) as remote_stage:
                 for name, uri in remote_stage.services.items():
-                    print(f"found remote resource with {name = } at {uri}")
                     proxy = pyro.Proxy(uri)
                     self._proxies.append(proxy)
                     setattr(self._stage, name, proxy)
-                    print(f"set stage attribute '{name}'")
+                    logger.info(
+                        f"Set stage attribute '{name}' after finding a remote resource"
+                        f" served at {uri}."
+                    )
         except Pyro5.errors.CommunicationError:
-            # TODO warn user that no remote stageg could be found
-            print("No remote stage found!")
+            logger.warning(
+                f"Did not find a remote stage at {_STAGE_URI}. "
+                f"Ignore this warning if you are only using local resources. "
+                f"Please setup a remote stage if you intend to use remote resources."
+            )
 
     @property
     def stage(self) -> Stage:
@@ -162,12 +179,6 @@ def locate(source: Path) -> set[Resource]:
     """ "source" is a folder containing modules that contain all instantiable user-defined Resource subclasses. We find all resource classes defined in all modules in all subfolders of the source folder THAT ARE DESIGNATED PYTHON PACKAGES i.e. the folder has an __init__.py file. We return a set of resource classes.
 
     source must be Path object, strings will throw a TypeError
-
-    TODO - error handling
-    message = (f"Can't load resource package folder '{source.stem}' at {source}. "
-                   f"Did you forget to place an empty __init__.py file in that folder?")
-    raise StagingError(message)
-
     """
     resources = set()
     for modfinder, modname, is_pkg in pkgutil.iter_modules([source]):
@@ -195,11 +206,13 @@ def validate(configpaths: list[Path]) -> None:
                 f"Unrecognized configpath '{path.name}'. "
                 f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
             )
-    print("configpath(s) have been validated")
+
+    logger.debug(f"Validated all {configpaths = }")
 
 
 if __name__ == "__main__":
 
+    # command line argument definition
     parser = argparse.ArgumentParser(description="Setup or Teardown a remote Stage")
     parser.add_argument(
         "--run",
@@ -214,8 +227,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # command line argument handling
     if args.run:  # setup remote stage with resources from the user supplied configpaths
-        print("setting up remote stage...")
+        logger.info("Setting up a remote stage...")
 
         # extract configpaths from args
         configpaths = [Path(configpath) for configpath in args.configpaths]
@@ -225,27 +239,26 @@ if __name__ == "__main__":
         resourcepath = Path(settings["resourcepath"])
 
         # expose resource classes with Pyro
-        pyro.expose(Parameter)
         resource_classes = locate(resourcepath)
         for resource_class in resource_classes:
             pyro.expose(resource_class)
             yml.register(resource_class)
-        print(f"sucessfully registered {resource_classes = }")
+        logger.info(f"Registered {len(resource_classes)} {resource_classes = }.")
 
         # create pyro Daemon and register a remote stage
         daemon = pyro.Daemon(port=_PORT)
         stage = Stage(*configpaths, daemon=daemon)
         stage_uri = daemon.register(stage, objectId=_SERVERNAME)
-        print(f"served remote stage at {stage_uri}")
+        logger.info(f"Served a remote stage at {stage_uri}.")
 
         # start listening for requests
         with daemon:
-            print("remote stage setup complete! now listening for requests...")
+            logger.info("Remote stage daemon is now listening for requests...")
             daemon.requestLoop()
-            print("exited remote stage daemon request loop")
+            logger.info("Exited remote stage daemon request loop.")
 
     else:  # teardown remote stage
-        print("tearing down remote stage, no action needed, just wait ~3 seconds...")
+        logger.info("Tearing down remote stage at {_STAGE_URI}, please wait ~2s...")
         with pyro.Proxy(_STAGE_URI) as remote_stage:
             remote_stage.teardown()
-        time.sleep(3)
+        time.sleep(2)
