@@ -10,13 +10,13 @@ import inspect
 from pathlib import Path
 import pkgutil
 import time
-from typing import Any
 
 import Pyro5.api as pyro
-import yaml
+import Pyro5.errors
 
 from labctrl.parameter import Parameter
 from labctrl.resource import Resource, Instrument
+import labctrl.yamlizer as yml
 
 _PORT = 9090  # port to bind a remote stage on (used to initialize Pyro Daemon)
 _SERVERNAME = "STAGE"
@@ -53,7 +53,7 @@ class Stage:
         """ """
         num_resources = 0
         for configpath in configpaths:
-            resources = load(configpath)
+            resources = yml.load(configpath)
             self._config[configpath] = resources
             num_resources += len(resources)
 
@@ -74,9 +74,6 @@ class Stage:
             )
             raise StagingError(message)
 
-        print(f"config: {self._config}")
-        print(f"services: {self._services}")
-
     def _serve(self) -> None:
         """ """
         for name, resource in self._services.items():
@@ -89,12 +86,12 @@ class Stage:
                 raise StagingError(message) from None
 
             self._services[name] = uri
-            print(f"served {resource = } at {uri = }")
+            print(f"served {resource = } at {uri}")
 
     def save(self) -> None:
         """save current state state to respective yaml configs"""
         for configpath, resources in self._config.items():
-            dump(configpath, *resources)
+            yml.dump(configpath, *resources)
 
     @property
     def services(self) -> dict[str, str]:
@@ -125,20 +122,23 @@ class Stagehand:
     def __init__(self, *configpaths: Path) -> None:
         """ """
         self._stage = Stage(*configpaths)
-
         # set resource names as stage attributes for easy access
         for name, resource in self._stage.services.items():
             setattr(self._stage, name, resource)
 
         # connect to remote stage, if available
         self._proxies: list[pyro.Proxy] = []
-        with pyro.Proxy(_STAGE_URI) as remote_stage:
-            for name, uri in remote_stage.services.items():
-                print(f"found remote resource with {name = } at {uri = }")
-                proxy = pyro.Proxy(uri)
-                self._proxies.append(proxy)
-                setattr(self._stage, name, proxy)
-                print(f"set stage attribute '{name}'")
+        try:
+            with pyro.Proxy(_STAGE_URI) as remote_stage:
+                for name, uri in remote_stage.services.items():
+                    print(f"found remote resource with {name = } at {uri}")
+                    proxy = pyro.Proxy(uri)
+                    self._proxies.append(proxy)
+                    setattr(self._stage, name, proxy)
+                    print(f"set stage attribute '{name}'")
+        except Pyro5.errors.CommunicationError:
+            # TODO warn user that no remote stageg could be found
+            print("No remote stage found!")
 
     @property
     def stage(self) -> Stage:
@@ -154,17 +154,14 @@ class Stagehand:
         self._stage.teardown()
 
         # release proxies, if any
-        for proxy in self._proxies.values():
+        for proxy in self._proxies:
             proxy._pyroRelease()
-
-
-def _is_resource(cls) -> bool:
-    """new resource is found when a class subclasses Resource but is not Resource or Instrument. to be extended to include Experiment classes..."""
-    return issubclass(cls, Resource) and cls not in (Resource, Instrument)
 
 
 def locate(source: Path) -> set[Resource]:
     """ "source" is a folder containing modules that contain all instantiable user-defined Resource subclasses. We find all resource classes defined in all modules in all subfolders of the source folder THAT ARE DESIGNATED PYTHON PACKAGES i.e. the folder has an __init__.py file. We return a set of resource classes.
+
+    source must be Path object, strings will throw a TypeError
 
     TODO - error handling
     message = (f"Can't load resource package folder '{source.stem}' at {source}. "
@@ -179,54 +176,26 @@ def locate(source: Path) -> set[Resource]:
             module = importlib.util.module_from_spec(modspec)
             modspec.loader.exec_module(module)  # for module namespace to be populated
             classes = inspect.getmembers(module, inspect.isclass)
-            resources |= {cls for _, cls in classes if _is_resource(cls)}
+            resources |= {cls for _, cls in classes if issubclass(cls, Resource)}
         else:  # we have found a subpackage, let's send it recursively to locate()
             resources |= locate(source / modname)
     return resources
 
 
-def load(configpath: Path) -> list[Resource]:
-    """returns a list of resource objects by reading a YAML file e.g. Instruments"""
-    try:
-        with open(configpath, mode="r") as config:
-            return yaml.safe_load(config)
-    except IOError:
-        message = (
-            f"Unable to find and load from a file at {configpath = }\n"
-            f"You may have specified an invalid path"
-        )
-        raise StagingError(message) from None
-    except AttributeError:
-        message = (
-            f"Failed to load a labctrl resource from {configpath}\n"
-            f"An entry in {configpath.name} may have an invalid attribute (key)"
-        )
-        raise StagingError(message) from None
-    except yaml.YAMLError:
-        message = (
-            f"Failed to identify and load labctrl resources from {configpath}\n"
-            f"{configpath.name} may have an invalid or unrecognized yaml tag"
-        )
-        raise StagingError(message) from None
-
-
-def dump(configpath: Path, *resources: Resource) -> None:
+def validate(configpaths: list[Path]) -> None:
     """ """
-    try:
-        with open(configpath, mode="w+") as config:
-            yaml.safe_dump(resources, config)
-    except IOError:
-        message = (
-            f"Unable to find and save to a file at {configpath = }\n"
-            f"You may have specified an invalid path"
+    if not configpaths:
+        raise StagingError(
+            f"Failed to setup stage as no configpaths were provided. "
+            f"Please provide at least one path to a yml config file and try again."
         )
-        raise StagingError(message) from None
-    except yaml.YAMLError:
-        message = (
-            f"Failed to save labctrl resources to {configpath}\n"
-            f"You may have supplied an invalid or unrecognized Resource class"
-        )
-        raise StagingError(message) from None
+    for path in configpaths:
+        if path.suffix not in (".yml", ".yaml"):
+            raise StagingError(
+                f"Unrecognized configpath '{path.name}'. "
+                f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
+            )
+    print("configpath(s) have been validated")
 
 
 if __name__ == "__main__":
@@ -236,10 +205,11 @@ if __name__ == "__main__":
         "--run",
         help="--run to setup & --no-run to teardown a remote stage",
         action=argparse.BooleanOptionalAction,
+        required=True,
     )
     parser.add_argument(
         "configpaths",
-        help="path(s) to config files to serve Resources from",
+        help="path(s) to yml config files to serve Resources from",
         nargs="*",
     )
     args = parser.parse_args()
@@ -248,19 +218,19 @@ if __name__ == "__main__":
         print("setting up remote stage...")
 
         # extract configpaths from args
-        configpaths = (Path(configpath) for configpath in args.configpaths)
+        configpaths = [Path(configpath) for configpath in args.configpaths]
+        validate(configpaths)
 
-        # find resource path from settings.yml
-        with open(Path.cwd() / "settings.yml", "r") as file:
-            settings = yaml.safe_load(file)
-            resourcepath = settings["resourcepath"]
+        settings = yml.load(Path.cwd().parent / "settings.yml")
+        resourcepath = Path(settings["resourcepath"])
 
         # expose resource classes with Pyro
-        resource_classes = locate(resourcepath) | {Instrument, Parameter, Resource}
-        print(f"found {len(resource_classes)} {resource_classes = }...")
-
+        pyro.expose(Parameter)
+        resource_classes = locate(resourcepath)
         for resource_class in resource_classes:
             pyro.expose(resource_class)
+            yml.register(resource_class)
+        print(f"sucessfully registered {resource_classes = }")
 
         # create pyro Daemon and register a remote stage
         daemon = pyro.Daemon(port=_PORT)
@@ -277,5 +247,5 @@ if __name__ == "__main__":
     else:  # teardown remote stage
         print("tearing down remote stage, no action needed, just wait ~3 seconds...")
         with pyro.Proxy(_STAGE_URI) as remote_stage:
-            remote_stage.teardown(shutdown=True)
+            remote_stage.teardown()
         time.sleep(3)
