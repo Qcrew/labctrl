@@ -11,6 +11,7 @@ from typing import Any, Type
 import numpy as np
 import yaml
 
+from labctrl.logger import logger
 from labctrl.resource import Resource
 
 
@@ -52,7 +53,7 @@ def register(cls: Type[Resource]) -> None:
         YamlRegistrationError: If `cls` is not a Python class."""
 
     if not issubclass(cls, Resource):
-        raise YamlRegistrationError(f"Only Resource(s) can be registered, not {cls}")
+        raise YamlRegistrationError(f"Only Resource(s) can be registered, not {cls}.")
 
     yamltag = cls.__name__
 
@@ -64,6 +65,7 @@ def register(cls: Type[Resource]) -> None:
     yaml.SafeDumper.add_multi_representer(np.floating, _sci_notation_representer)
 
     _REGISTRAR._register[yamltag] = cls
+    logger.debug(f"Registered {cls} with yamlizer.")
 
 
 def _construct(loader: yaml.SafeLoader, node: yaml.MappingNode) -> Resource:
@@ -82,6 +84,7 @@ def _construct(loader: yaml.SafeLoader, node: yaml.MappingNode) -> Resource:
 
     yamlmap = loader.construct_mapping(node, deep=True)
     cls = _REGISTRAR._register[node.tag]
+    logger.debug(f"Loading an instance of {cls} from yaml...")
     return cls(**yamlmap)
 
 
@@ -96,6 +99,7 @@ def _represent(dumper: yaml.SafeDumper, resource: Resource) -> yaml.MappingNode:
         yaml.MappingNode: Yaml map representation of the given custom instance."""
     yamltag = resource.__class__.__name__
     yamlmap = resource.snapshot()
+    logger.debug(f"Dumping '{resource}' to yaml...")
     return dumper.represent_mapping(yamltag, yamlmap)
 
 
@@ -103,23 +107,24 @@ def load(configpath: Path) -> list[Resource]:
     """returns a list of resource objects by reading a YAML file e.g. Instruments"""
     try:
         with open(configpath, mode="r") as config:
+            logger.debug(f"Loading resources from '{configpath.stem}'...")
             return yaml.safe_load(config)
     except IOError:
         message = (
-            f"Unable to find and load from a file at {configpath = }\n"
-            f"You may have specified an invalid path"
+            f"Unable to find and load from a file at {configpath = }. "
+            f"You may have specified an invalid path."
         )
         raise YamlizationError(message) from None
     except AttributeError:
         message = (
-            f"Failed to load a labctrl resource from {configpath}\n"
-            f"An entry in {configpath.name} may have an invalid attribute (key)"
+            f"Failed to load a labctrl resource from {configpath}. "
+            f"An entry in {configpath.name} may have an invalid attribute (key)."
         )
         raise YamlizationError(message) from None
     except yaml.YAMLError:
         message = (
-            f"Failed to identify and load labctrl resources from {configpath}\n"
-            f"{configpath.name} may have an invalid or unrecognized yaml tag"
+            f"Failed to identify and load labctrl resources from {configpath}. "
+            f"'{configpath.name}' may have an invalid or unrecognized yaml tag."
         )
         raise YamlizationError(message) from None
 
@@ -128,16 +133,17 @@ def dump(configpath: Path, *resources: Resource) -> None:
     """ """
     try:
         with open(configpath, mode="w+") as config:
+            logger.debug(f"Dumping resources to '{configpath.stem}'...")
             yaml.safe_dump(resources, config)
     except IOError:
         message = (
-            f"Unable to find and save to a file at {configpath = }\n"
-            f"You may have specified an invalid path"
+            f"Unable to find and save to a file at {configpath = }. "
+            f"You may have specified an invalid path."
         )
         raise YamlizationError(message) from None
     except yaml.YAMLError:
         message = (
-            f"Failed to save labctrl resources to {configpath}\n"
-            f"You may have supplied an invalid or unrecognized Resource class"
+            f"Failed to save labctrl resources to {configpath}. "
+            f"You may have supplied an invalid or unrecognized Resource class."
         )
         raise YamlizationError(message) from None

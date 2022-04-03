@@ -121,7 +121,7 @@ class Parameter:
             return self
 
         if self._get is None:  # user has not specified a getter for this Parameter
-            raise AttributeError(f"Parameter '{self._name}' is not gettable")
+            raise AttributeError(f"Parameter '{self._name}' is not gettable.")
 
         value = self._get(obj)
         self._bound(value, obj, self._name)  # validate the value that was got
@@ -130,7 +130,7 @@ class Parameter:
     def __set__(self, obj: Any, value: Any) -> Any:
         """ """
         if self._set is None:  # user has not specified a setter for this Parameter
-            raise AttributeError(f"Parameter '{self._name}' is not settable")
+            raise AttributeError(f"Parameter '{self._name}' is not settable.")
         self._bound(value, obj, self)  # validate the value to be set
         self._set(obj, value)
 
@@ -168,6 +168,6 @@ class Parameter:
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
     if not inspect.isclass(cls):
-        raise ValueError(f"Argument must be a Python class, not '{cls}' of {type(cls)}")
+        raise ValueError(f"Argument must be Python class, not '{cls}' of {type(cls)}.")
     f = inspect.getmro(cls)  # f is for family
     return {k: v for c in f for k, v in c.__dict__.items() if isinstance(v, Parameter)}

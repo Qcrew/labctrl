@@ -37,7 +37,7 @@ class Resource(metaclass=ResourceMetaclass):
     def __init__(self, name: str, **parameters) -> None:
         """ """
         self._name = str(name)
-        logger.info(f"Initialized {self}")
+        logger.debug(f"Initialized {self}.")
         # set parameters with default values (if present) if not supplied by the user
         self.configure(**{**self.__class__._defaults, **parameters})
 
@@ -60,10 +60,10 @@ class Resource(metaclass=ResourceMetaclass):
         for name, value in parameters.items():
             if name in self.__class__._settables:
                 setattr(self, name, value)
-                logger.info(f"Set {self} {name} = {value}")
+                logger.debug(f"Set {self} '{name}' = {value}.")
             else:
                 logger.warning(
-                    f"Ignored {name} as it is not a settable parameter of {self}"
+                    f"Ignored '{name}' as it is not a settable parameter of {self}."
                 )
 
     def snapshot(self) -> dict[str, Any]:
@@ -94,30 +94,34 @@ class Instrument(Resource):
     @property
     def status(self) -> bool:
         """ """
-        raise NotImplementedError("Instrument subclasses must implement `status`")
+        raise NotImplementedError("Subclasses must implement 'status'.")
 
     def configure(self, **parameters) -> None:
         """ """
         if not self.status:
             message = (
-                f"{self} cannot be configured as it has disconnected\n"
-                f"Please check the physical connection and try to reconnect"
+                f"Unable to configure {self} as it has disconnected. "
+                f"Please check the physical connection and try to reconnect."
             )
             raise ConnectionError(message)
+
         super().configure(**parameters)
 
     def snapshot(self) -> dict[str, Any]:
         """ """
         if not self.status:
-            # TODO upgrade to logger warning
-            print(f"WARNING: {self} has disconnected, returning minimal snapshot")
+            logger.error(
+                f"Returning a minimal snapshot as {self} has disconnected. "
+                f"Please check the physical connection and try to reconnect."
+                )
             return {"name": self.name, "id": self.id}
+
         super().snapshot()
 
     def connect(self) -> None:
         """ """
-        raise NotImplementedError("Instrument subclasses must implement `connect()`")
+        raise NotImplementedError("Subclasses must implement 'connect()'.")
 
     def disconnect(self) -> None:
         """ """
-        raise NotImplementedError("Instrument subclasses must implement `disconnect()`")
+        raise NotImplementedError("Subclasses must implement 'disconnect()'.")

@@ -32,4 +32,4 @@ logger.add(  # send logged messages to users
     sys.stdout, format=log_record_format, level="INFO", backtrace=False, diagnose=False
 )
 
-logger.debug("Logger activated")
+logger.debug("Logger activated!")
