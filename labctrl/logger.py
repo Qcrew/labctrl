@@ -3,9 +3,14 @@
 from pathlib import Path
 import sys
 
+import yaml
+
 from loguru import logger
 
-LOG_FOLDER_PATH = Path(__file__).resolve().parents[2] / "logs"
+# get logs folder path from labctrl settings.yml
+with open(Path.cwd().parent / "settings.yml", "r") as settings:
+    LOGSPATH = Path(yaml.safe_load(settings)["logspath"])
+
 logger.remove()  # remove default handlers
 
 # customise logging levels
@@ -20,7 +25,7 @@ log_record_format = (  # customise log record format
 
 # register log sinks with loguru logger
 logger.add(
-    LOG_FOLDER_PATH / "session.log",
+    Path(LOGSPATH) / "session.log",
     format=log_record_format,
     rotation="24 hours",  # current log file closed and new one started every 24 hours
     retention="1 week",  # log files created more than a week ago will be removed
