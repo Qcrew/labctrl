@@ -15,8 +15,8 @@ import Pyro5.api as pyro
 import Pyro5.errors
 
 from labctrl.logger import logger
-from labctrl.parameter import Parameter
 from labctrl.resource import Resource, Instrument
+from labctrl.settings import Settings
 import labctrl.yamlizer as yml
 
 _PORT = 9090  # port to bind a remote stage on (used to initialize Pyro Daemon)
@@ -46,13 +46,45 @@ class Stage:
         # if remote, it is a dict with key: resource name, value: remote resource URI
         self._services = {}
 
-        self._setup(*configpaths)
-
         self._daemon = daemon
-        if self._daemon is not None:
-            self._serve()
 
-    def _setup(self, *configpaths: Path) -> None:
+        if configpaths:
+            self._register()  # locate and register resource classes with yaml and pyro
+            self._load(*configpaths)
+            if self._daemon is not None:
+                self._serve()
+
+    def _register(self) -> None:
+        """ """
+        settings = Settings()
+        resourcepath = settings.resourcepath
+        if resourcepath is None:
+            message = (
+                f"Unable to register resources as no resource path is specified. "
+                f"Please set a resource path through the Settings context manager."
+            )
+            raise StagingError(message)
+
+        try:
+            resource_classes = locate(Path(resourcepath))
+        except TypeError:
+            message = (
+                f"Unable to cast {resourcepath = } to a 'Path' object. "
+                f"Please set 'resourcepath' with a string that is a valid path."
+            )
+            raise StagingError(message) from None
+        else:
+            if not resource_classes:
+                message = "Unable to setup stage as no resource classes were found."
+                raise StagingError(message)
+
+            for resource_class in resource_classes:
+                yml.register(resource_class)
+                if self._daemon is not None:
+                    pyro.expose(resource_class)
+                    logger.debug(f"Exposed '{resource_class}' with pyro.")
+
+    def _load(self, *configpaths: Path) -> None:
         """ """
         num_resources = 0
         for configpath in configpaths:
@@ -88,9 +120,9 @@ class Stage:
                     f"Expect {daemon = } of type '{pyro.Daemon}', not {type(daemon)}"
                 )
                 raise StagingError(message) from None
-
-            self._services[name] = uri
-            logger.info(f"Served '{resource}' remotely at '{uri}'.")
+            else:
+                self._services[name] = uri
+                logger.info(f"Served '{resource}' remotely at '{uri}'.")
 
     def save(self) -> None:
         """save current state state to respective yaml configs"""
@@ -138,24 +170,25 @@ class Stagehand:
             setattr(self._stage, name, resource)
             logger.info(f"Set stage attribute '{name}'.")
 
-        # connect to remote stage, if available
+        # attributes '_remote_stage' and '_proxies' are updated if remote stage exists
         self._proxies: list[pyro.Proxy] = []
+        self._remote_stage: pyro.Proxy = pyro.Proxy(_STAGE_URI)
         try:
-            with pyro.Proxy(_STAGE_URI) as remote_stage:
-                for name, uri in remote_stage.services.items():
-                    proxy = pyro.Proxy(uri)
-                    self._proxies.append(proxy)
-                    setattr(self._stage, name, proxy)
-                    logger.info(
-                        f"Set stage attribute '{name}' after finding a remote resource"
-                        f" served at {uri}."
-                    )
+            for name, uri in self._remote_stage.services.items():
+                proxy = pyro.Proxy(uri)
+                self._proxies.append(proxy)
+                setattr(self._stage, name, proxy)
+                logger.info(
+                    f"Set local stage attribute '{name}' after finding a remote "
+                    f"resource served at {uri}."
+                )
         except Pyro5.errors.CommunicationError:
             logger.warning(
                 f"Did not find a remote stage at {_STAGE_URI}. "
                 f"Ignore this warning if you are only using local resources. "
                 f"Please setup a remote stage if you intend to use remote resources."
             )
+            self._remote_stage = None
 
     @property
     def stage(self) -> Stage:
@@ -170,8 +203,11 @@ class Stagehand:
         """ """
         self._stage.teardown()
 
-        # release proxies, if any
-        for proxy in self._proxies:
+        if self._remote_stage is not None:
+            self._remote_stage.save()
+            self._remote_stage._pyroRelease()
+
+        for proxy in self._proxies:  # release proxies, if any
             proxy._pyroRelease()
 
 
@@ -228,28 +264,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # command line argument handling
-    if args.run:  # setup remote stage with resources from the user supplied configpaths
+    if args.run:  # setup remote stage with resources from user supplied configpath(s)
         logger.info("Setting up a remote stage...")
 
         # extract configpaths from args
         configpaths = [Path(configpath) for configpath in args.configpaths]
         validate(configpaths)
 
-        settings = yml.load(Path.cwd().parent / "settings.yml")
-        resourcepath = Path(settings["resourcepath"])
-
-        # expose resource classes with Pyro
-        resource_classes = locate(resourcepath)
-        for resource_class in resource_classes:
-            pyro.expose(resource_class)
-            yml.register(resource_class)
-        logger.info(f"Registered {len(resource_classes)} {resource_classes = }.")
-
         # create pyro Daemon and register a remote stage
         daemon = pyro.Daemon(port=_PORT)
         stage = Stage(*configpaths, daemon=daemon)
         stage_uri = daemon.register(stage, objectId=_SERVERNAME)
-        logger.info(f"Served a remote stage at {stage_uri}.")
+        logger.info(f"Served a remote stage at '{stage_uri}'.")
 
         # start listening for requests
         with daemon:
@@ -258,7 +284,7 @@ if __name__ == "__main__":
             logger.info("Exited remote stage daemon request loop.")
 
     else:  # teardown remote stage
-        logger.info("Tearing down remote stage at {_STAGE_URI}, please wait ~2s...")
+        logger.info("Tearing down remote stage at '{_STAGE_URI}', please wait ~2s...")
         with pyro.Proxy(_STAGE_URI) as remote_stage:
             remote_stage.teardown()
         time.sleep(2)
