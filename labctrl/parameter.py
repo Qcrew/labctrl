@@ -101,7 +101,8 @@ class Parameter:
         self._name = None  # updated by __set_name__()
         self._bound = self.Bounds(bounds)
         self._default = default  # default value of the parameter
-        self._get, self._set = None, None  # updated by getter() and setter()
+        # we use "public" names "fget" and "fset" to partly "duck" as a Python property
+        self.fget, self.fset = None, None  # updated by getter() and setter()
 
     def __repr__(self) -> str:
         """ """
@@ -120,39 +121,39 @@ class Parameter:
         if obj is None:  # user wants to inspect this Parameter's object representation
             return self
 
-        if self._get is None:  # user has not specified a getter for this Parameter
+        if self.fget is None:  # user has not specified a getter for this Parameter
             raise AttributeError(f"Parameter '{self._name}' is not gettable.")
 
-        value = self._get(obj)
+        value = self.fget(obj)
         self._bound(value, obj, self._name)  # validate the value that was got
         return value
 
     def __set__(self, obj: Any, value: Any) -> Any:
         """ """
-        if self._set is None:  # user has not specified a setter for this Parameter
+        if self.fset is None:  # user has not specified a setter for this Parameter
             raise AttributeError(f"Parameter '{self._name}' is not settable.")
         self._bound(value, obj, self)  # validate the value to be set
-        self._set(obj, value)
+        self.fset(obj, value)
 
     def getter(self, getter):
         """ """
-        self._get = getter
+        self.fget = getter
         return self
 
     @property
     def is_gettable(self) -> bool:
         """ """
-        return self._get is not None
+        return self.fget is not None
 
     def setter(self, setter):
         """ """
-        self._set = setter
+        self.fset = setter
         return self
 
     @property
     def is_settable(self) -> bool:
         """ """
-        return self._set is not None
+        return self.fset is not None
 
     @property
     def default(self) -> Any:
