@@ -5,3 +5,5 @@ __pycache__
 /resources
 /data
 /logs
+*.yml
+*.yaml
