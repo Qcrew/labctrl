@@ -6,7 +6,7 @@ import yaml
 
 from labctrl.logger import logger
 
-SETTINGSPATH = Path.cwd() / "settings.yml"
+SETTINGSPATH = Path(__file__).resolve().parent / "settings.yml"
 
 
 class Settings:
@@ -16,15 +16,15 @@ class Settings:
         settings.<setting> = <value>
         ...
         settings.save()
-    Do settings.settings to get a list of all settable <setting> attributes
+    Run 'settings.settings' to get a list of all settable <setting> attributes
     """
+
+    _settings: set[str] = {"configpath", "datapath", "logspath", "resourcepath"}
 
     def __init__(self) -> None:
         """ """
         with open(SETTINGSPATH, "r") as config:
             settings = yaml.safe_load(config)
-
-        self._keys = settings.keys()
 
         for name, value in settings.items():
             setattr(self, name, value)
@@ -33,12 +33,12 @@ class Settings:
     @property
     def settings(self) -> list[str]:
         """ """
-        return sorted(self._keys)
+        return sorted(Settings._settings)
 
     def save(self) -> None:
         """ """
         settings = {}
-        for key in self._keys:
+        for key in Settings._settings:
             value = getattr(self, key, None)
             settings[key] = value
         with open(SETTINGSPATH, "w+") as config:
