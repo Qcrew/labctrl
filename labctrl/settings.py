@@ -29,6 +29,7 @@ class Settings:
 
     def __init__(self) -> None:
         """ """
+        logger.info(f"Available labctrl settings: {Settings._settings}")
 
         if SETTINGSPATH.exists():
             with open(SETTINGSPATH, "r") as config:
@@ -39,8 +40,6 @@ class Settings:
         for name, value in settings.items():
             setattr(self, name, value)
             logger.info(f"Found labctrl setting '{name}' = '{value}'.")
-            if value is None:
-                logger.info(f"Please set {name} as it is currently set to '{value}'.")
 
     def __enter__(self) -> Settings:
         """ """
@@ -48,7 +47,12 @@ class Settings:
 
     def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         """ """
-        settings = {k: v for k, v in self.__dict__.items() if k in self.settings}
+        settings = {}
+        for name in Settings._settings:
+            value = getattr(self, name, None)
+            settings[name] = value
+            logger.info(f"Saving labctrl setting '{name}' = '{value}'...")
+        
         with open(SETTINGSPATH, "w+") as config:
             try:
                 yaml.safe_dump(settings, config)
