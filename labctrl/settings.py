@@ -34,7 +34,7 @@ class Settings:
             with open(SETTINGSPATH, "r") as config:
                 settings = yaml.safe_load(config)
         else:
-            settings = dict.fromkeys(Settings._settings)
+            settings = dict.fromkeys(Settings._settings)  # default settings
 
         for name, value in settings.items():
             setattr(self, name, value)
@@ -50,7 +50,14 @@ class Settings:
         """ """
         settings = {k: v for k, v in self.__dict__.items() if k in self.settings}
         with open(SETTINGSPATH, "w+") as config:
-            yaml.safe_dump(settings, config)
+            try:
+                yaml.safe_dump(settings, config)
+            except yaml.YAMLError as err:
+                logger.error(
+                    f"Failed to save labctrl settings due to a YAML error:\n"
+                    f"Details: {err = }"
+                )
+                yaml.safe_dump(dict.fromkeys(Settings._settings), config)  # default
 
     @property
     def settings(self) -> list[str]:
