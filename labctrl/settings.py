@@ -56,10 +56,11 @@ class Settings:
         with open(SETTINGSPATH, "w+") as config:
             try:
                 yaml.safe_dump(settings, config)
-            except yaml.YAMLError as err:
+            except yaml.YAMLError as error:
                 logger.error(
                     f"Failed to save labctrl settings due to a YAML error:\n"
-                    f"Details: {err = }"
+                    f"Details: {error}"
+                    f"Reverted to default settings. Please fix the error and try again."
                 )
                 yaml.safe_dump(dict.fromkeys(Settings._settings), config)  # default
 
