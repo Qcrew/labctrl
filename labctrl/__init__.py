@@ -1,4 +1,4 @@
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 from labctrl.resource import Instrument, Resource
 from labctrl.parameter import Parameter
