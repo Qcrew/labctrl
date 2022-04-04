@@ -3,13 +3,10 @@
 from pathlib import Path
 import sys
 
-import yaml
-
 from loguru import logger
 
-# get logs folder path from labctrl settings.yml
-with open(Path.cwd().parent / "settings.yml", "r") as settings:
-    LOGSPATH = Path(yaml.safe_load(settings)["logspath"])
+# set logs folder path
+LOGSPATH = Path.cwd() / "logs"
 
 logger.remove()  # remove default handlers
 
