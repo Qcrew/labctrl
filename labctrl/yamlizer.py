@@ -64,8 +64,9 @@ def register(cls: Type[Resource]) -> None:
     yaml.SafeDumper.add_representer(float, _sci_notation_representer)
     yaml.SafeDumper.add_multi_representer(np.floating, _sci_notation_representer)
 
-    _REGISTRAR._register[yamltag] = cls
-    logger.debug(f"Registered {cls} with yamlizer.")
+    if yamltag not in _REGISTRAR._register:
+        _REGISTRAR._register[yamltag] = cls
+        logger.debug(f"Registered '{cls}' with yamlizer.")
 
 
 def _construct(loader: yaml.SafeLoader, node: yaml.MappingNode) -> Resource:
