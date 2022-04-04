@@ -68,7 +68,7 @@ class Resource(metaclass=ResourceMetaclass):
 
     def snapshot(self) -> dict[str, Any]:
         """ """
-        return {name: getattr(self, name) for name in self.__class__._gettables}
+        return {name: getattr(self, name) for name in sorted(self.__class__._gettables)}
 
 
 class Instrument(Resource):
@@ -80,7 +80,7 @@ class Instrument(Resource):
         """ """
         self._id = id
         self.connect()
-        super().__init(**parameters)
+        super().__init__(**parameters)
 
     def __repr__(self) -> str:
         """ """
@@ -114,9 +114,9 @@ class Instrument(Resource):
                 f"Returning a minimal snapshot as {self} has disconnected. "
                 f"Please check the physical connection and try to reconnect."
                 )
-            return {"name": self.name, "id": self.id}
+            return {"id": self.id, "name": self.name}
 
-        super().snapshot()
+        return super().snapshot()
 
     def connect(self) -> None:
         """ """
