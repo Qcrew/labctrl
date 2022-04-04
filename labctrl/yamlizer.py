@@ -111,7 +111,7 @@ def load(configpath: Path) -> list[Resource]:
             return yaml.safe_load(config)
     except IOError:
         message = (
-            f"Unable to find and load from a file at {configpath = }. "
+            f"Unable to load resources from a file at {configpath = }. "
             f"You may have specified an invalid path."
         )
         raise YamlizationError(message) from None
@@ -124,7 +124,7 @@ def load(configpath: Path) -> list[Resource]:
     except yaml.YAMLError:
         message = (
             f"Failed to identify and load labctrl resources from {configpath}. "
-            f"'{configpath.name}' may have an invalid or unrecognized yaml tag."
+            f"Config '{configpath.name}' may have an invalid or unrecognized yaml tag."
         )
         raise YamlizationError(message) from None
 
@@ -137,7 +137,7 @@ def dump(configpath: Path, *resources: Resource) -> None:
             yaml.safe_dump(resources, config)
     except IOError:
         message = (
-            f"Unable to find and save to a file at {configpath = }. "
+            f"Unable to save resources to a file at {configpath = }. "
             f"You may have specified an invalid path."
         )
         raise YamlizationError(message) from None
