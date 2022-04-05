@@ -124,7 +124,7 @@ class Stage:
                 uri = self._daemon.register(resource, objectId=name)
             except (TypeError, AttributeError):
                 message = (
-                    f"Expect {daemon = } of type '{pyro.Daemon}', not {type(daemon)}"
+                    f"Daemon must be of type '{pyro.Daemon}', not {type(self._daemon)}."
                 )
                 raise StagingError(message) from None
             else:
@@ -271,7 +271,7 @@ def main() -> None:
                 f"Please provide at least one path to a yml config file and try again."
             )
         for path in configpaths:
-            if path.suffix not in (".yml", ".yaml"):
+            if path.suffix.lower() not in (".yml", ".yaml"):
                 raise StagingError(
                     f"Unrecognized configpath '{path.name}'. "
                     f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
