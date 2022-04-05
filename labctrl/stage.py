@@ -240,26 +240,8 @@ def locate(source: Path) -> set[Resource]:
             resources |= locate(source / modname)
     return resources
 
-
-def validate(configpaths: list[Path]) -> None:
+def main() -> None:
     """ """
-    if not configpaths:
-        raise StagingError(
-            f"Failed to setup stage as no configpaths were provided. "
-            f"Please provide at least one path to a yml config file and try again."
-        )
-    for path in configpaths:
-        if path.suffix not in (".yml", ".yaml"):
-            raise StagingError(
-                f"Unrecognized configpath '{path.name}'. "
-                f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
-            )
-
-    logger.debug(f"Validated all {configpaths = }")
-
-
-if __name__ == "__main__":
-
     # command line argument definition
     parser = argparse.ArgumentParser(description="Setup or Teardown a remote Stage")
     parser.add_argument(
@@ -281,7 +263,20 @@ if __name__ == "__main__":
 
         # extract configpaths from args
         configpaths = [Path(configpath) for configpath in args.configpaths]
-        validate(configpaths)
+
+    	# validate configpaths
+        if not configpaths:
+            raise StagingError(
+                f"Failed to setup stage as no configpaths were provided. "
+                f"Please provide at least one path to a yml config file and try again."
+            )
+        for path in configpaths:
+            if path.suffix not in (".yml", ".yaml"):
+                raise StagingError(
+                    f"Unrecognized configpath '{path.name}'. "
+                    f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
+                )
+        logger.debug(f"Validated all {configpaths = }")
 
         # create pyro Daemon and register a remote stage
         daemon = pyro.Daemon(port=_PORT)
@@ -297,6 +292,14 @@ if __name__ == "__main__":
 
     else:  # teardown remote stage
         logger.info("Tearing down remote stage at '{_STAGE_URI}', please wait ~2s...")
-        with pyro.Proxy(_STAGE_URI) as remote_stage:
-            remote_stage.teardown()
-        time.sleep(2)
+        try:
+            with pyro.Proxy(_STAGE_URI) as remote_stage:
+                remote_stage.teardown()
+        except Pyro5.errors.CommunicationError:
+            message = (f"No remote stage to teardown at {_STAGE_URI}. ")
+            raise StagingError(message) from None
+        else:
+            time.sleep(2)
+
+if __name__ == "__main__":
+    main()
