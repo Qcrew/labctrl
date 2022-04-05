@@ -76,6 +76,12 @@ class Stage:
                 f"Please set 'resourcepath' with a string that is a valid path."
             )
             raise StagingError(message) from None
+        except RecursionError:
+            message = (
+                f"Unable to setup stage as it is being called by a script within "
+                f"{resourcepath = }. Please call the stage from outside resource path."
+            )
+            raise StagingError(message) from None
         else:
             if not resource_classes:
                 message = "Unable to setup stage as no resource classes were found."
