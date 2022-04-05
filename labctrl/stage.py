@@ -4,6 +4,8 @@ This module contains methods and classes for
     2. Loading / Dumping resource instances from / to yaml config files
 """
 
+from __future__ import annotations
+
 import argparse
 import importlib.util
 import inspect
@@ -56,8 +58,9 @@ class Stage:
 
     def _register(self) -> None:
         """ """
-        settings = Settings()
-        resourcepath = settings.resourcepath
+        # ensure that the resourcepath is available
+        resourcepath = Settings().resourcepath
+        logger.debug(f"Found labctrl setting {resourcepath = }.")
         if resourcepath is None:
             message = (
                 f"Unable to register resources as no resource path is specified. "
@@ -95,18 +98,22 @@ class Stage:
 
             for resource in resources:
                 try:
-                    self._services[resource.name] = resource
+                    resource_name = resource.name
                 except (TypeError, AttributeError):
                     message = (
-                        f"A {resource = } in {configpath = } does not have a 'name'\n"
-                        f"All resources must have a '.name' attribute to be staged"
+                        f"A {resource = } in {configpath = } does not have a 'name'. "
+                        f"All resources must have a '.name' attribute to be staged."
                     )
                     raise StagingError(message) from None
+                else:
+                    self._services[resource.name] = resource
+                    setattr(self, resource_name, resource)
+                    logger.info(f"Set stage attribute '{resource_name}'")
 
         if num_resources != len(self._services):
             message = (
-                f"Two or more resources in {configpaths = } share a name\n"
-                f"All resources must have unique names to be staged"
+                f"Two or more resources in {configpaths = } share a name. "
+                f"All resources must have unique names to be staged."
             )
             raise StagingError(message)
 
@@ -123,6 +130,14 @@ class Stage:
             else:
                 self._services[name] = uri
                 logger.info(f"Served '{resource}' remotely at '{uri}'.")
+
+    def __enter__(self) -> Stage:
+        """ """
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
+        """ """
+        self.teardown()
 
     def save(self) -> None:
         """save current state state to respective yaml configs"""
@@ -165,30 +180,27 @@ class Stagehand:
         logger.debug("Initializing a stagehand...")
 
         self._stage = Stage(*configpaths)
-        # set resource names as stage attributes for easy access
-        for name, resource in self._stage.services.items():
-            setattr(self._stage, name, resource)
-            logger.info(f"Set stage attribute '{name}'.")
 
         # attributes '_remote_stage' and '_proxies' are updated if remote stage exists
         self._proxies: list[pyro.Proxy] = []
         self._remote_stage: pyro.Proxy = pyro.Proxy(_STAGE_URI)
+
         try:
             for name, uri in self._remote_stage.services.items():
                 proxy = pyro.Proxy(uri)
                 self._proxies.append(proxy)
-                setattr(self._stage, name, proxy)
+                setattr(self._stage, name, proxy)  # replace resource with proxy
                 logger.info(
-                    f"Set local stage attribute '{name}' after finding a remote "
-                    f"resource served at {uri}."
+                    f"Set stage attribute '{name}' after finding a remote resource "
+                    f"served at {uri}."
                 )
         except Pyro5.errors.CommunicationError:
-            logger.warning(
+            message = (
                 f"Did not find a remote stage at {_STAGE_URI}. "
-                f"Ignore this warning if you are only using local resources. "
-                f"Please setup a remote stage if you intend to use remote resources."
+                f"Please setup a remote stage if you want to use remote resources. "
+                f"Use a Stage context manager if you want to only use local resources."
             )
-            self._remote_stage = None
+            raise StagingError(message) from None
 
     @property
     def stage(self) -> Stage:
