@@ -37,7 +37,6 @@ class Settings:
 
         for name, value in self._settings.items():
             setattr(self, name, value)
-            logger.debug(f"Found labctrl setting '{name}' = '{value}'.")
 
     def __repr__(self) -> str:
         """ """
