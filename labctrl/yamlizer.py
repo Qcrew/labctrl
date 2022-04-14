@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """This module contains utilities that perform resource class registration, dumping and
 loading.
 
