@@ -22,7 +22,7 @@ log_record_format = (  # customise log record format
 
 # register log sinks with loguru logger
 logger.add(
-    Path(LOGSPATH) / "session.log",
+    Path(LOGSPATH) / "log.log",
     format=log_record_format,
     rotation="24 hours",  # current log file closed and new one started every 24 hours
     retention="1 week",  # log files created more than a week ago will be removed
