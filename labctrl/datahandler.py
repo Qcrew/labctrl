@@ -15,7 +15,9 @@ class DataSavingError(Exception):
 
 
 class DataSaver:
-    """context manager for saving data to an .h5 file that is associated with an experimental run. Each experimental run initializes a datasaver with a dataspec. Two groups - "data" where datasets are saved and "metadata" where other heterogenous attributes are saved. The groups are fixed so as to simplify data saving...
+    """context manager for saving data to an .h5 file that is associated with an experimental run. Each experimental run initializes a datasaver with a dataspec. Two groups - "data" where datasets are saved and "metadata" where other heterogenous attributes are saved. The groups are fixed so as to simplify data saving. We prescribe that each experimental run is associated with one hdf5 data file.
+
+    Initialize the datasaver at the start of the Experiment run method. Then use it to save data after data is generated and fetched.
 
     dataspec structure: each dataspec key is dataset name and value is a dict specifying dataset creation
     e.g. <dataset1_name> = {
@@ -77,6 +79,9 @@ class DataSaver:
                         # we have found a new coordinate (dimension scale)
                         coordinates.add(label)
                         data[name]
+
+    def create_dataset(self, name, ):
+        """ """
 
 
 if __name__ == "__main__":
