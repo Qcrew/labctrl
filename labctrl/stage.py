@@ -274,7 +274,7 @@ def setup(*configpaths: Path) -> None:
                 raise StagingError(message)
             logger.debug(f"Validated all {configpaths = }")
         except (TypeError, AttributeError):
-            message = f"Expect path of '{type(Path)}', not '{path}' of '{type(path)}'"
+            message = f"Expect path of '{Path}', not '{path}' of '{type(path)}'"
             logger.error(message)
             raise StagingError(message) from None
 
