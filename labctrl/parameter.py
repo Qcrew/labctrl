@@ -3,6 +3,8 @@
 import inspect
 from typing import Any, Type
 
+from labctrl.logger import logger
+
 
 class BoundsParsingError(Exception):
     """ """
@@ -36,6 +38,7 @@ class Parameter:
                 self._predicate, self._stringrep = self._parse(boundspec)
             except (TypeError, RecursionError, ValueError, UnboundLocalError):
                 message = f"Invalid bound specification: {boundspec}"
+                logger.error(message)
                 raise BoundsParsingError(message) from None
 
         def _parse(self, boundspec):
@@ -86,10 +89,12 @@ class Parameter:
                 truth = self._predicate(value, obj)
             except (TypeError, ValueError) as error:
                 message = f"Can't validate Parameter '{param}' bounds due to {error = }"
+                logger.error(message)
                 raise BoundingError(message) from None
             else:
                 if not truth:
                     message = f"Parameter '{param}' {value = } is out of bounds {self}"
+                    logger.error(message)
                     raise OutOfBoundsError(message)
 
         def __repr__(self) -> str:
@@ -122,7 +127,9 @@ class Parameter:
             return self
 
         if self.fget is None:  # user has not specified a getter for this Parameter
-            raise AttributeError(f"Parameter '{self._name}' is not gettable.")
+            message = f"Parameter '{self._name}' is not gettable."
+            logger.error(message)
+            raise AttributeError(message)
 
         value = self.fget(obj)
         self._bound(value, obj, self._name)  # validate the value that was got
@@ -131,7 +138,9 @@ class Parameter:
     def __set__(self, obj: Any, value: Any) -> Any:
         """ """
         if self.fset is None:  # user has not specified a setter for this Parameter
-            raise AttributeError(f"Parameter '{self._name}' is not settable.")
+            message = f"Parameter '{self._name}' is not settable."
+            logger.error(message)
+            raise AttributeError(message)
         self._bound(value, obj, self)  # validate the value to be set
         self.fset(obj, value)
 
@@ -169,6 +178,8 @@ class Parameter:
 def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
     """ """
     if not inspect.isclass(cls):
-        raise ValueError(f"Argument must be Python class, not '{cls}' of {type(cls)}.")
+        message = f"Argument must be Python class, not '{cls}' of {type(cls)}."
+        logger.error(message)
+        raise ValueError(message)
     f = inspect.getmro(cls)  # f is for family
     return {k: v for c in f for k, v in c.__dict__.items() if isinstance(v, Parameter)}

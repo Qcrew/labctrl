@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """This module contains utilities that perform resource class registration, dumping and
 loading.
 
@@ -53,7 +52,9 @@ def register(cls: Type[Resource]) -> None:
         YamlRegistrationError: If `cls` is not a Python class."""
 
     if not issubclass(cls, Resource):
-        raise YamlRegistrationError(f"Only Resource(s) can be registered, not {cls}.")
+        message = f"Only Resource class(es) can be registered, not {cls}."
+        logger.error(message)
+        raise YamlRegistrationError(message)
 
     yamltag = cls.__name__
 
@@ -115,18 +116,21 @@ def load(configpath: Path) -> list[Resource]:
             f"Unable to load resources from a file at {configpath = }. "
             f"You may have specified an invalid path."
         )
+        logger.error(message)
         raise YamlizationError(message) from None
     except AttributeError:
         message = (
             f"Failed to load a labctrl resource from {configpath}. "
             f"An entry in {configpath.name} may have an invalid attribute (key)."
         )
+        logger.error(message)
         raise YamlizationError(message) from None
     except yaml.YAMLError:
         message = (
             f"Failed to identify and load labctrl resources from {configpath}. "
             f"Config '{configpath.name}' may have an invalid or unrecognized yaml tag."
         )
+        logger.error(message)
         raise YamlizationError(message) from None
 
 
@@ -141,10 +145,12 @@ def dump(configpath: Path, *resources: Resource) -> None:
             f"Unable to save resources to a file at {configpath = }. "
             f"You may have specified an invalid path."
         )
+        logger.error(message)
         raise YamlizationError(message) from None
     except yaml.YAMLError:
         message = (
             f"Failed to save labctrl resources to {configpath}. "
             f"You may have supplied an invalid or unrecognized Resource class."
         )
+        logger.error(message)
         raise YamlizationError(message) from None

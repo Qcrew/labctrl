@@ -1,7 +1,7 @@
 """
-This module contains methods and classes for 
-    1. Locating resource classes in specified resources folder
-    2. Loading / Dumping resource instances from / to yaml config files
+This module contains methods and classes for staging resources prior to running experiments.
+
+Resouces are loaded from .yml config files and may be staged remotely.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import importlib.util
 import inspect
 from pathlib import Path
 import pkgutil
-import time
 
 import Pyro5.api as pyro
 import Pyro5.errors
@@ -23,8 +22,7 @@ import labctrl.yamlizer as yml
 
 _PORT = 9090  # port to bind a remote stage on (used to initialize Pyro Daemon)
 _SERVERNAME = "STAGE"
-# remote stage unique resource identifier (URI)
-_STAGE_URI = f"PYRO:{_SERVERNAME}@localhost:{_PORT}"
+_STAGE_URI = f"PYRO:{_SERVERNAME}@localhost:{_PORT}"  # unique resource identifier (URI)
 
 
 class StagingError(Exception):
@@ -36,25 +34,32 @@ class Stage:
     """ """
 
     def __init__(self, *configpaths: Path, daemon: pyro.Daemon | None = None) -> None:
-        """configpaths: path to YAML file containing Resource classes to be instantiated
-        daemon: if not None, this stage will be a remote stage that serves the Resources in the configpath remotely with Pyro. you can send in multiple configpaths, the resources will be bundled up on the same stage."""
+        """configpaths: path(s) to YAML file containing Resource classes to be instantiated.
+        daemon: if not None, this stage will be a remote stage that serves the Resources in the configpath remotely with Pyro.
+
+        If the stage is initailized with multiple configpaths, all resources will be bundled up on the same stage."""
 
         logger.debug("Initializing a stage...")
 
         # self._config and self._services will be updated by _setup()
         self._config = {}  # dict with key: configpath, value: list of Resources
-
         # if local, services is a dict with key: resource name, value: Resource object
         # if remote, it is a dict with key: resource name, value: remote resource URI
         self._services = {}
 
         self._daemon = daemon
 
+        self._is_local = self._daemon is None
+        mode = "local" if self._is_local else "remote"
         if configpaths:
             self._register()  # locate and register resource classes with yaml and pyro
             self._load(*configpaths)
-            if self._daemon is not None:
+            if not self._is_local:
                 self._serve()
+        else:
+            logger.warning(f"No config(s) supplied, setting up an empty {mode} stage.")
+
+        logger.debug(f"Done initializing a {mode} stage.")
 
     def _register(self) -> None:
         """ """
@@ -66,6 +71,7 @@ class Stage:
                 f"Unable to register resources as no resource path is specified. "
                 f"Please set a resource path through the Settings context manager."
             )
+            logger.error(message)
             raise StagingError(message)
 
         try:
@@ -75,16 +81,19 @@ class Stage:
                 f"Unable to cast {resourcepath = } to a 'Path' object. "
                 f"Please set 'resourcepath' with a string that is a valid path."
             )
+            logger.error(message)
             raise StagingError(message) from None
         except RecursionError:
             message = (
                 f"Unable to setup stage as it is being called by a script within "
                 f"{resourcepath = }. Please call the stage from outside resource path."
             )
+            logger.error(message)
             raise StagingError(message) from None
         else:
             if not resource_classes:
                 message = "Unable to setup stage as no resource classes were found."
+                logger.error(message)
                 raise StagingError(message)
 
             for resource_class in resource_classes:
@@ -110,6 +119,7 @@ class Stage:
                         f"A {resource = } in {configpath = } does not have a 'name'. "
                         f"All resources must have a '.name' attribute to be staged."
                     )
+                    logger.error(message)
                     raise StagingError(message) from None
                 else:
                     self._services[resource.name] = resource
@@ -121,6 +131,7 @@ class Stage:
                 f"Two or more resources in {configpaths = } share a name. "
                 f"All resources must have unique names to be staged."
             )
+            logger.error(message)
             raise StagingError(message)
 
     def _serve(self) -> None:
@@ -132,6 +143,7 @@ class Stage:
                 message = (
                     f"Daemon must be of type '{pyro.Daemon}', not {type(self._daemon)}."
                 )
+                logger.error(message)
                 raise StagingError(message) from None
             else:
                 self._services[name] = uri
@@ -206,6 +218,7 @@ class Stagehand:
                 f"Please setup a remote stage if you want to use remote resources. "
                 f"Use a Stage context manager if you want to only use local resources."
             )
+            logger.error(message)
             raise StagingError(message) from None
 
     @property
@@ -246,8 +259,53 @@ def locate(source: Path) -> set[Resource]:
             resources |= locate(source / modname)
     return resources
 
-def main() -> None:
+
+def setup(*configpaths: Path) -> None:
     """ """
+    logger.info("Setting up a remote stage...")
+    for path in configpaths:
+        try:
+            if path.suffix.lower() not in (".yml", ".yaml"):
+                message = (
+                    f"Unrecognized configpath '{path.name}'. "
+                    f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
+                )
+                logger.error(message)
+                raise StagingError(message)
+            logger.debug(f"Validated all {configpaths = }")
+        except (TypeError, AttributeError):
+            message = f"Expect path of '{type(Path)}', not '{path}' of '{type(path)}'"
+            logger.error(message)
+            raise StagingError(message) from None
+
+    # create pyro Daemon and register a remote stage
+    daemon = pyro.Daemon(port=_PORT)
+    stage = Stage(*configpaths, daemon=daemon)
+    stage_uri = daemon.register(stage, objectId=_SERVERNAME)
+    logger.info(f"Served a remote stage at '{stage_uri}'.")
+
+    # start listening for requests
+    with daemon:
+        logger.info("Remote stage daemon is now listening for requests...")
+        daemon.requestLoop()
+        logger.info("Exited remote stage daemon request loop.")
+
+
+def teardown() -> None:
+    """ """
+    try:
+        with pyro.Proxy(_STAGE_URI) as remote_stage:
+            remote_stage.teardown()
+    except Pyro5.errors.CommunicationError:
+        message = f"No remote stage to teardown at {_STAGE_URI}. "
+        logger.error(message)
+        raise StagingError(message) from None
+    else:
+        logger.info(f"Tore down a remote stage at '{_STAGE_URI}'.")
+
+
+if __name__ == "__main__":
+
     # command line argument definition
     parser = argparse.ArgumentParser(description="Setup or Teardown a remote Stage")
     parser.add_argument(
@@ -265,47 +323,17 @@ def main() -> None:
 
     # command line argument handling
     if args.run:  # setup remote stage with resources from user supplied configpath(s)
-        logger.info("Setting up a remote stage...")
-
         # extract configpaths from args
         configpaths = [Path(configpath) for configpath in args.configpaths]
-
-    	# validate configpaths
         if not configpaths:
-            raise StagingError(
+            message = (
                 f"Failed to setup stage as no configpaths were provided. "
                 f"Please provide at least one path to a yml config file and try again."
             )
-        for path in configpaths:
-            if path.suffix.lower() not in (".yml", ".yaml"):
-                raise StagingError(
-                    f"Unrecognized configpath '{path.name}'. "
-                    f"Valid configs are YAML files with a '.yml' or '.yaml' extension."
-                )
-        logger.debug(f"Validated all {configpaths = }")
+            logger.error(message)
+            raise StagingError(message)
 
-        # create pyro Daemon and register a remote stage
-        daemon = pyro.Daemon(port=_PORT)
-        stage = Stage(*configpaths, daemon=daemon)
-        stage_uri = daemon.register(stage, objectId=_SERVERNAME)
-        logger.info(f"Served a remote stage at '{stage_uri}'.")
-
-        # start listening for requests
-        with daemon:
-            logger.info("Remote stage daemon is now listening for requests...")
-            daemon.requestLoop()
-            logger.info("Exited remote stage daemon request loop.")
+        setup(*configpaths)
 
     else:  # teardown remote stage
-        logger.info("Tearing down remote stage at '{_STAGE_URI}', please wait ~2s...")
-        try:
-            with pyro.Proxy(_STAGE_URI) as remote_stage:
-                remote_stage.teardown()
-        except Pyro5.errors.CommunicationError:
-            message = (f"No remote stage to teardown at {_STAGE_URI}. ")
-            raise StagingError(message) from None
-        else:
-            time.sleep(2)
-
-if __name__ == "__main__":
-    main()
+        teardown()

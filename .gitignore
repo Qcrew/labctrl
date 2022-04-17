@@ -94,3 +94,6 @@ logs/
 config/
 *.yml
 *.yaml
+
+# labctrl specific
+resources/

@@ -62,9 +62,7 @@ class Resource(metaclass=ResourceMetaclass):
                 setattr(self, name, value)
                 logger.debug(f"Set {self} '{name}' = {value}.")
             else:
-                logger.warning(
-                    f"Ignored '{name}' as it is not a settable parameter of {self}."
-                )
+                logger.warning(f"'{name}' is not a settable parameter of {self}.")
 
     def snapshot(self) -> dict[str, Any]:
         """ """
@@ -103,6 +101,7 @@ class Instrument(Resource):
                 f"Unable to configure {self} as it has disconnected. "
                 f"Please check the physical connection and try to reconnect."
             )
+            logger.error(message)
             raise ConnectionError(message)
 
         super().configure(**parameters)
@@ -110,10 +109,11 @@ class Instrument(Resource):
     def snapshot(self) -> dict[str, Any]:
         """ """
         if not self.status:
-            logger.error(
+            message = (
                 f"Returning a minimal snapshot as {self} has disconnected. "
                 f"Please check the physical connection and try to reconnect."
                 )
+            logger.error(message)
             return {"id": self.id, "name": self.name}
 
         return super().snapshot()
