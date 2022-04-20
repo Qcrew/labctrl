@@ -9,6 +9,8 @@ Decides data handling for Experiments so user doesn't have to know the nitty-gri
 4. datasets to be specified (name, maxshape, dimension labels, data type, units) through DataSaver's dataspec attribute during DataSaver initialization and prior to saving the experimental data generated i.e. no dynamic dataset creation. Dimension scales can be linked to datasets automatically.
 4. live save protocol.
 5. numpy arrays only!!! (that's how h5py treats data anyways, so we also prescribe that users supply np arrays for saving)
+
+must save all data in same context session!!! if not we will trim!
 """
 
 from __future__ import annotations
@@ -44,23 +46,24 @@ class DataSaver:
     def __init__(self, path: Path, **dataspec) -> None:
         """path: full path to the datafile (must end in .h5 or .hdf5). DataSaver is not responsible for setting datafile naming/saving convention, the caller is."""
 
+        if not self._dataspec:
+            message = f"No dataset specification found, 'dataspec' can't be empty."
+            logger.error(message)
+            raise DataSavingError(message) from None
+
         self._file = None  # will be updated by __enter__()
+        self._lock = False  # prevent write to file once first DataSaver context exits
         self._path = path
         self._validate_path()
 
         self._dataspec: dict[str, dict] = dataspec
-        if self._dataspec:
-            try:
-                self._initialize_datasets()
-            except (AttributeError, TypeError) as err:
-                message = (
-                    f"While initializing datasets, encountered {err}. "
-                    f"Please check whether you provided a valid dataset specification."
-                )
-                logger.error(message)
-                raise DataSavingError(message) from None
-        else:
-            message = f"No dataset specification found, 'dataspec' can't be empty."
+        try:
+            self._initialize_datasets()
+        except (AttributeError, TypeError) as err:
+            message = (
+                f"While initializing datasets, encountered {err}. "
+                f"Please check whether you provided a valid dataset specification."
+            )
             logger.error(message)
             raise DataSavingError(message) from None
 
@@ -163,18 +166,29 @@ class DataSaver:
 
     def __enter__(self) -> DataSaver:
         """ """
-        self._file = h5py.File(self._path, mode="r+")
-        logger.debug(f"Start DataSaver session tagged to file '{self._file.filename}'.")
+        if self._lock:
+            message = (
+                f" Data file at '{self._path}' has been opened during a previous "
+                f"DataSaver session and can no longer be written into."
+            )
+            logger.error(message)
+            raise DataSavingError(message)
 
-        # track the data batch count saved to disk so far for each dataset(s)
+        self._file = h5py.File(self._path, mode="r+")
+        logger.debug(f"Started DataSaver session tagged to '{self._file.filename}'.")
+
+        # track the maximum value of the index data is written to along each dimension 
+        # for each dataset, this will be used to resize (trim) the dataset in __exit__()
         for spec in self._dataspec.values():
-            if "batches" not in spec:
-                spec["batches"] = 0
+            if spec["chunks"] is not False:  # dataset is resizable
+                rank = len(spec["shape"])
+                spec["resize"] = (0, ) * rank
+
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         """ """
-        # trim resizable datasets if needed
+        # trim resizable datasets
         for name, spec in self._dataspec.items():
             # find resizable datasets that have been written to in batches
             # we ignore trimming in the case where a resizable dataset has not been
@@ -190,21 +204,35 @@ class DataSaver:
 
         self._file.flush()
         self._file.close()
+        self._lock = True  # lock data file, no more data can be written to it
 
-    def save_data(self, name: str, data: np.ndarray, position: int = ...):
-        """save a batch of data to the named dataset at (optional) position.
+    def save_data(
+        self, name: str, data: np.ndarray, index: tuple[int | slice] | ... = ...
+    ) -> None:
+        """insert a batch of data to the named dataset at (optional) specified index. please call this method within a datasaver context, if not it will throw error.
 
-        incoming data must have same dimension n as declared under its name in the dataspec, and must match in the n-1 innermost dimensions, with the outermost dimension being treated as the "number of batches" which will be inserted into index specified by 'position', this "number of batches" is the outermost dimension. data resizing responsibility lies with caller. if position = ... then the whole dataset with 'name' will be written with the incoming data (caller must ensure data is not overwritten). can't use position to append to 1D datasets (they are considered a unit batch).
+        with DataSaver(path_to_datafile, dataset_specification) as datasaver:
+            # key-value pairs in metadata_dict will be stored as group_name group attributes in .h5 file
+            datasaver.save_metadata(group_name, metadata_dict)
+
+            datasaver.save_data(name, incoming_data, [index])
+
+        name: str the dataset name as declared in the dataspec. raises an error if we encounter a dataset that has not been declared prior to saving
+
+        data: np.ndarray (using list will throw error, please use numpy arrays) incoming data to be written into dataset
+
+        index = ... means that the incoming data is written to the entire dataset in one go i.e. we do dataset[...] = incoming_data. Use this when all the data to be saved is available in memory at the same time. this is the default option
+
+        index = tuple[int | slice] means that you want to insert the incoming data to a specific location ("hyperslab") in the dataset. Use this while saving data that is being streamed in successive batches or in any other application that requires appending to existing dataset. we pass the index directly to h5py i.e. we do dataset[index] = incoming_data, so user must be familiar with h5py indexing convention to use this feature effectively. index must be a tuple (not list etc) to ensure proper saving behaviour. to ensure more explicit code and allow reliable tracking of written data, we also enforce that the index tuple dimensions match that of the dataset shape as declared in the dataspec - if you want to write along an entire dimension, pass in a slice(None) object at that dimension's index.
         """
         dataset = self._get_dataset(name)
-        self._validate_shape(name, dataset, data, position)
-        dataset[position] = data  # write to dataset
+        self._validate_index(name, dataset, index)
+        dataset[index] = data  # write to dataset TODO error handling
         self._file.flush()
 
-        if position is not ...:
-            self._dataspec[name]["batches"] += data.shape[0]  # track batch count
-        else:
-            self._dataspec[name]["batches"] = 0  # not being written to in batches
+        # track size from indices for resizable datasets so we can trim them later
+        if self._dataspec[name]["chunks"] is not False:
+            self._track_size(name, index)
 
     def _get_dataset(self, name: str) -> h5py.Dataset:
         """ """
@@ -223,45 +251,27 @@ class DataSaver:
             logger.error(message)
             raise DataSavingError(message) from None
 
-    def _validate_shape(
-        self,
-        name: str,
-        dataset: h5py.Dataset,
-        data: np.ndarray,
-        position,
+    def _validate_index(
+        self, name: str, dataset: h5py.Dataset, index: tuple[int | slice]
     ) -> None:
-        """dataset is stored in .h5 file on disk with 'name'. data is incoming data to be written to that dataset."""
-        slc = slice(None, None) if position is ... else slice(1, None)
+        """ """
+        # isinstance check is necessary to ensure stable datasaving
+        if not isinstance(index, tuple):
+            message = (
+                f"Expect index of {tuple}, got '{index}' of '{type(index)}'"
+                f"while writing to dataset '{name}'."
+            )
+            logger.error(message)
+            raise DataSavingError(message)
 
-        try:
-            if dataset.shape[slc] != data.shape[slc]:
-                if position is ...:
-                    message = (
-                        f"Failed to write dataset '{name}' as incoming {data.shape = }"
-                        f"does not equal {dataset.shape = } declared in the dataspec."
-                    )
-                else:
-                    message = (
-                        f"Failed to append to dataset '{name}' as the lower n-1 dims of"
-                        f" incoming {data.shape[1:] = } != {dataset.shape[1:] = }."
-                    )
-                logger.error(message)
-                raise DataSavingError(message)
-        except AttributeError:
+        # dimensions of dataset and index must match to allow tracking of written data
+        if not dataset.ndim == len(index):
             message = (
-                f"Failed to validate shape of incoming data for dataset '{name}'. "
-                f"Please check if the incoming datastream is of '{np.ndarray}' "
-                f"and that the data file member named '{name}' is of '{h5py.Dataset}'."
+                f"Expect dataset '{name}' dimensions ({dataset.ndim}) to equal the"
+                f"length of the index tuple, got {index = } with length {len(index)}."
             )
             logger.error(message)
-            raise DataSavingError(message) from None
-        except IndexError:
-            message = (
-                f"Invalid attempt to append one-dimensional data to dataset '{name}'. "
-                f"Please reshape incoming data or redeclare the dataspec and try again."
-            )
-            logger.error(message)
-            raise DataSavingError(message) from None
+            raise DataSavingError(message)
 
     def save_metadata(self):
         """ """
@@ -269,33 +279,4 @@ class DataSaver:
 
 if __name__ == "__main__":
     """ """
-    # d = DataSaver(path=Path.cwd() / "data/sweep.h5")
-
-"""
-    def create_dataset(
-        self,
-        name: str,
-        shape: tuple[int],
-        chunks: bool | tuple[int],
-        dtype: str = None,
-        dims: tuple[str] = None,  # accessed by locals() call
-        units: str = None,
-    ) -> None:
-        """ """
-        self._dataspec[name] = {  # update dataspec
-            k: v for k, v in locals().items() if k in DataSaver._dataspec_keys
-        }
-        if name in self._dataspec.keys():
-            logger.warning(f"Overwrote specification of dataset named '{name}'.")
-        with h5py.File(self._path, mode="r+") as file:
-            self._create_dataset(file, name, shape, chunks, dtype, units) 
-    def dimensionalize_datasets(self) -> None:
-        dimensionalize means attach dimension scales to specified datasets. call this when done specifying all datasets with create_dataset(). if using dataspec attribute, no need to call this, it is done automatically. no need to check if datasets exist bc unless _dataspec has been messed with, that is guaranteed
-        with h5py.File(self._path, mode="r+") as file:
-            coordinates = self._find_coordinates()
-            for name in self._dataspec.keys() - coordinates:
-                dims = self._dataspec[name].get("dims", None)
-                if dims is not None:
-                    self._dimensionalize_dataset(file, name, coordinates, dims)
-
-"""
+    d = DataSaver(path=Path.cwd() / "data/sweep.h5")
