@@ -11,6 +11,7 @@ Decides data handling for Experiments so user doesn't have to know the nitty-gri
 
 from __future__ import annotations
 
+from numbers import Number
 from pathlib import Path
 
 import h5py
@@ -55,13 +56,12 @@ class DataSaver:
         self._dataspec: dict[str, dict] = dataspec
         try:
             self._initialize_datasets()
-        except (AttributeError, TypeError) as error:
+        except (AttributeError, TypeError):
             message = (
-                f"While initializing datasets, encountered {error = }. "
                 f"Please check whether you provided a valid dataset specification."
             )
             logger.error(message)
-            raise DataSavingError(message) from None
+            raise DataSavingError(message)
         except FileExistsError:
             message = (
                 f"Data file already exists at specified path '{self._path}'. "
@@ -219,6 +219,7 @@ class DataSaver:
 
         index = tuple[int | slice] means that you want to insert the incoming data to a specific location ("hyperslab") in the dataset. Use this while saving data that is being streamed in successive batches or in any other application that requires appending to existing dataset. we pass the index directly to h5py i.e. we do dataset[index] = incoming_data, so user must be familiar with h5py indexing convention to use this feature effectively. NOTE - we don't support ellipsis (...) please don't use it and use slice(None) instead. index must be a tuple (not list etc) to ensure proper saving behaviour. to ensure more explicit code and allow reliable tracking of written data, we also enforce that the index tuple dimensions match that of the dataset shape as declared in the dataspec - if you want to write along an entire dimension, pass in a slice(None) object at that dimension's index.
         """
+        self._validate_session()
         dataset = self._get_dataset(name)
         self._validate_index(name, dataset, index)
         dataset[index] = data  # write to dataset TODO error handling
@@ -231,18 +232,20 @@ class DataSaver:
 
         self._track_size(name, index)  # for trimming dataset if needed in __exit__()
 
+    def _validate_session(self) -> None:
+        """check if hdf5 file is currently open (called when either save_data() or save_metadata() is called). enforces use of DataSaver context manager as the only means of writing to the data file."""
+        if self._file is None:
+            message = (
+                f"The data file is not open. Please call data saving methods within a "
+                f"DataSaver context manager and try again."
+            )
+            logger.error(message)
+            raise DataSavingError(message)
+
     def _get_dataset(self, name: str) -> h5py.Dataset:
         """ """
         try:
             return self._file[name]
-        except TypeError:
-            message = (
-                f"The data file is not open. Did you try to call save_data() from "
-                f"outside the DataSaver context? Please use the DataSaver context "
-                f"manager and try again."
-            )
-            logger.error(message)
-            raise DataSavingError(message) from None
         except KeyError:
             message = f"Dataset '{name}' does not exist in {self._file.filename}."
             logger.error(message)
@@ -295,8 +298,75 @@ class DataSaver:
         )
         self._dataspec[name]["size"] = size
 
-    def save_metadata(self):
-        """ """
+    def save_metadata(self, name: str | None, **metadata) -> None:
+        """save all key-value pairs in metadata dict as attributes of specified group name in data file. if name = None, we save to top-level group in hdf5 file (but make sure you don't overwrite attributes with subsequent calls to save_metadata() if you use name = None). all keys in metadata dict must be strings.
+        name: str name of group to save metadata to.
+        **metadata: key-value pairs to store as attributes of the named group
+        if we find dict(s) inside the given metadata dict, we save them as metadata at the proper group level recursively.
+        """
+        self._validate_session()
+        file = self._file
+        group = file if name is None else file.create_group(name, track_order=True)
+        self._save_metadata(group, **metadata)
+
+    def _save_metadata(self, group: h5py.Group, **metadata) -> None:
+        """internal method, made for recursive saving of metadata"""
+        try:
+            for key, value in metadata.items():
+                value = self._parse_attribute(key, value)
+                if isinstance(value, dict):
+                    subgroup = group.create_group(key, track_order=True)
+                    self._save_metadata(subgroup, **value)
+                else:
+                    group.attrs[key] = value
+
+                    logger.debug(
+                        f"Set {group = } attribute '{key}' with value of {type(value)}."
+                    )
+        except ValueError:
+            message = (
+                f"Got ValueError while saving metadata with {key = } and {value = }. "
+                f"Data size is too large (>64k), please save it as a dataset instead."
+            )
+            logger.error(message)
+            raise DataSavingError(message)
+        except TypeError:
+            message = (
+                f"Got TypeError while saving metadata with {key = } and {value = }. "
+                f"This is because h5py does not support the data type of the value."
+            )
+            logger.error(message)
+            raise DataSavingError(message)
+
+    def _parse_attribute(self, key, value):
+        """TODO make these parsing rules more explicit once they have been settled"""
+        if isinstance(value, (Number, np.number, str, bool, np.ndarray, dict)):
+            return value
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            value = list(value)
+
+            if not value:  # return list as is if empty
+                return value
+            elif len(value) == 1:  # return the single value for lists of length one
+                return value[0]
+
+            # if list contains all numbers or all values of the same type, return as is
+            is_numeric = all(isinstance(item, Number) for item in value)
+            is_same_type = all(isinstance(item, type(value[0])) for item in value[1:])
+            if is_numeric or is_same_type:
+                return value
+            else:  # else convert it to a dictionary with the index as the key
+                dic = {str(idx): item for idx, item in enumerate(value)}
+                print(f"{dic = }")
+                return {str(idx): item for idx, item in enumerate(value)}
+        elif value is None:
+            return h5py.Empty("S10")
+        else:
+            logger.warning(
+                f"Found unusual {value = } of {type(value)} while parsing metadata "
+                f"{key = }, h5py attribute saving behaviour may not be reliable."
+            )
+            return value
 
 
 if __name__ == "__main__":
@@ -307,19 +377,19 @@ if __name__ == "__main__":
 
     x_len = 51
     y_len = 25
-    reps = 100
+    reps = 10
 
     # this dataspec will be declared by each Experiment class
-    dataspec = {
+    dataspec_ = {
         # 1D independent variables x and y
         "x": {
             "shape": (x_len,),
-            "dtype": "f4",  # 32-bit floating point number
+            # "dtype": "f4",  # 32-bit floating point number
             "units": "Hz",
         },
         "y": {
             "shape": (y_len,),
-            "dtype": "f4",
+            # "dtype": "f4",
             "units": "dB",
         },
         # 2D dependent variable z with shape (n, y, x) where n is number of repetitions
@@ -327,27 +397,56 @@ if __name__ == "__main__":
         "z": {
             "shape": (reps, y_len, x_len),  # let n = 40
             "dims": ("n", "y", "x"),  # dimension labels
-            "dtype": "f4",
+            # "dtype": "f4",
             "units": "AU",
         },
         # 1D dependent variable avg which will be written to once
         "avg": {
             "shape": (y_len, x_len),  # average over n
-            "dtype": "f4",
+            # "dtype": "f4",
             "units": "AU",
         },
+    }
+
+    # metadata dictionary
+    metadata_dict = {
+        "int": 2,
+        "float": 1.5,
+        "complex": 1.0 + 1j,
+        "string": "hello wurdl",
+        "none": None,  # should be saved z an empty attribute
+        "bool": True,
+        "nested_dict": {
+            "1": 1,  # test if integer key is converted to str
+            "e": "e",
+            "another_nested_dict": {
+                "stop": "nesting",
+                "dicts": ["p", "l", "s"],
+            },
+        },
+        "str_list": ["one", "two", "three"],
+        "int_set": {1, 2, 3},
+        "float_tuple": (1.0, 2.0, 3.0),
+        "mixed_number_list": [1.0, 4, 3.4 + 2j],
+        "empty_list": [],
+        "single_value_list": [95],
+        "mixed_type_set": {1, 2, 3, False, "hi"},
+        "mixed_list": [None, "a", 1, 3.0, ["a", "b"]],
+        "mixed_nested_list": [["a", ["b", ["c", 51], 50], 49], [4.0, 5.4, 3.4], 33],
     }
 
     # the experiment class will generate the data file name
     from datetime import datetime
 
-    date, timestamp = datetime.now().strftime("%Y%m%d %H%M%S").split()
-    path = Path.cwd() / f"data/test/{date}/{timestamp}_sweep.h5"
+    datestamp, timestamp = datetime.now().strftime("%Y%m%d %H%M%S").split()
+    path = Path.cwd() / f"data/test/{datestamp}/{timestamp}_sweep.h5"
 
     # initialize datasaver and enter its context to save data
     # all data generated by the experiment must be saved within a single session
 
-    with DataSaver(path=path, **dataspec) as datasaver:
+    with DataSaver(path=path, **dataspec_) as datasaver:
+        datasaver.save_metadata("mdata", **metadata_dict)
+
         x = np.linspace(5e9, 6e9, x_len)
         y = np.linspace(0.0, 10.0, y_len)
 
@@ -365,8 +464,8 @@ if __name__ == "__main__":
             print(z)
 
             # calculate index position to save this batch of z data at
-            index = (slice(count, count + batches), slice(None), slice(None))
-            datasaver.save_data("z", z, index)
+            index_ = (slice(count, count + batches), slice(None), slice(None))
+            datasaver.save_data("z", z, index_)
 
             count += batches
             print(f"Data {count = }.")
