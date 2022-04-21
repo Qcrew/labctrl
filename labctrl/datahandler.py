@@ -24,6 +24,10 @@ class DataSavingError(Exception):
     """ """
 
 
+class DataLoadingError(Exception):
+    """ """
+
+
 class DataSaver:
     """context manager for saving data to an .h5 file that is associated with an experimental run. only to be used as a context manager (for clean I/O).
 
@@ -356,8 +360,6 @@ class DataSaver:
             if is_numeric or is_same_type:
                 return value
             else:  # else convert it to a dictionary with the index as the key
-                dic = {str(idx): item for idx, item in enumerate(value)}
-                print(f"{dic = }")
                 return {str(idx): item for idx, item in enumerate(value)}
         elif value is None:
             return h5py.Empty("S10")
@@ -367,6 +369,10 @@ class DataSaver:
                 f"{key = }, h5py attribute saving behaviour may not be reliable."
             )
             return value
+
+
+class DataLoader:
+    """ """
 
 
 if __name__ == "__main__":
