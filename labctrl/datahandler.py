@@ -28,10 +28,10 @@ class DataSaver:
 
     dataspec structure: each dataspec key is dataset name and value is a dict specifying dataset creation
     e.g. <dataset1_name> = {
-        "shape": tuple[int], dataset shape, enter max possible shape if resize = True
-        "chunks": bool or tuple[int], if True, resizable dataset with auto-chunking, if false, fixed-size dataset. If tuple[int] (must be same shape as dataset), then resizable dataset with manual chunking True. you would want to use resizable datasets for live saving and fixed size datasets to store independent data, for instance.
+        "shape": REQUIRED tuple[int], dataset shape, enter max possible shape the dataset may have
+        "chunks": OPTIONAL tuple[int], if not specified, h5py does auto-chunking. If tuple[int] (must be same shape as dataset), we pass the tuple as the 'chunks' attribute to h5py's create_dataset() method.
         "dims": OPTIONAL (tuple[str]) label(s) for each dimension in the shape, use this to relate each dim of dependent variable data to independent variable data. will be simply ignored for coordinates as it doesn't make sense to attach dimension scales to coordinates (as the coordinates are nothing but dimension scales themselves).
-        "dtype": OPTIONAL str, data type string (same as those used by numpy), must be single valued as datasets contain homogeneous data
+        "dtype": OPTIONAL str, data type string (same as those used by numpy), must be single valued as datasets contain homogeneous data. will be passed as the 'dtype' attribute to h5py's create_dataset() method.
         "units": OPTIONAL str
     }
 
@@ -47,7 +47,7 @@ class DataSaver:
             logger.error(message)
             raise DataSavingError(message) from None
 
-        self._file = None  # will be updated by __enter__()
+        self._file = None  # will be updated by __enter__() and __exit__()
         self._lock = False  # prevent write to file once first DataSaver context exits
         self._path = path
         self._validate_path()
@@ -62,29 +62,6 @@ class DataSaver:
             )
             logger.error(message)
             raise DataSavingError(message) from None
-
-        logger.debug(f"Initialized a DataSaver tagged to data file at {self._path}.")
-
-    def _validate_path(self) -> None:
-        """validate path, also create folder(s)/file as needed"""
-        try:
-            # ensure path ends in .h5, .hdf5, .he5, .hdf
-            if path.suffix not in (".h5", ".hdf5", ".he5", ".hdf"):
-                message = f"Path does not end in one of '.h5 .hdf5 .he5 .hdf'."
-                logger.error(message)
-                raise DataSavingError(message)
-
-            # ensure folder containing the datafile exists
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-
-            # create datafile, throws error if file exists
-            self._path.touch(exist_ok=False)
-
-            logger.debug(f"Created an hdf5 data file at '{self._path}'.")
-        except (AttributeError, TypeError):
-            message = f"Invalid data file path '{self._path}', must be of '{Path}'."
-            logger.error(message)
-            raise DataSavingError(message) from None
         except FileExistsError:
             message = (
                 f"Data file already exists at specified path '{self._path}'. "
@@ -93,10 +70,28 @@ class DataSaver:
             logger.error(message)
             raise DataSavingError(message) from None
 
+        logger.debug(f"Initialized a DataSaver tagged to data file at {self._path}.")
+
+    def _validate_path(self) -> None:
+        """validate path, also create folder(s)/file as needed"""
+        try:
+            # ensure path ends in .h5, .hdf5, .he5, .hdf
+            if self._path.suffix not in (".h5", ".hdf5", ".he5", ".hdf"):
+                message = f"Path '{self._path}' must end in .h5, .hdf5, .he5, or .hdf'."
+                logger.error(message)
+                raise DataSavingError(message)
+            # ensure folder containing the datafile exists
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except (AttributeError, TypeError):
+            message = f"Invalid data file path '{self._path}', must be of '{Path}'."
+            logger.error(message)
+            raise DataSavingError(message) from None
+
     def _initialize_datasets(self) -> None:
         """ """
-        with h5py.File(self._path, mode="r+") as file:
-            coordinates = self._find_coordinates()
+        # mode = "x" means create file, fail if exists
+        with h5py.File(self._path, mode="x", track_order=True) as file:
+            coordinates = self._find_coordinates()  # coordinates are independent vars
 
             for name in coordinates:  # create coordinate datasets first
                 # ignore dims if specified, coordinates cannot have dims, they are dims!
@@ -110,8 +105,6 @@ class DataSaver:
                 self._create_dataset(file=file, name=name, **self._dataspec[name])
                 if dims is not None:
                     self._dimensionalize_dataset(file, name, coordinates, dims)
-
-            file.flush()
 
     def _find_coordinates(self) -> set[str]:
         """coordinate datasets are those whose named strings appear in both the dataspec keyset and the 'dims' tuple of another dataset"""
@@ -129,27 +122,27 @@ class DataSaver:
         file: h5py.File,
         name: str,
         shape: tuple[int],
-        chunks: bool | tuple[int],
+        chunks: bool | tuple[int] = True,
         dtype: str = None,
         units: str = None,
     ) -> None:
         """wrapper for h5py method. default fillvalue decided by h5py."""
-        # chunks = False for fixed-size dataset, else consider as resizable dataset
-        # for resizable datasets, chunks must be either True (auto-chunking)
-        # or tuple with the same dimension as shape
-        chunks = None if chunks is False else chunks
-        # shape = maxshape because we resize dataset after all data is written to it
-        maxshape = None if chunks is False else shape
-
+        # by default, we create resizable datasets with shape = maxshape
+        # we resize the dataset in __exit__() after all data is written to it
         dataset = file.create_dataset(
-            name=name, shape=shape, maxshape=maxshape, chunks=chunks, dtype=dtype
+            name=name,
+            shape=shape,
+            maxshape=shape,
+            chunks=chunks,
+            dtype=dtype,
+            track_order=True,
         )
 
         if units is not None:
             dataset.attrs["units"] = str(units)
 
         logger.debug(
-            f"Created dataset named '{name}' in file '{file.filename}' with "
+            f"Created dataset named '{name}' in file '{self._path.name}' with "
             f"specification: {shape = }, {chunks = }, {dtype = }, {units = }."
         )
 
@@ -191,33 +184,20 @@ class DataSaver:
 
     def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         """ """
-        # trim resizable datasets and tag datasets as complete or not
+        # trim datasets
         for name, spec in self._dataspec.items():
-            dataset = self._file[name]
-            final_shape = tuple(self._dataspec[name]["size"])
-            declared_shape = self._dataspec[name]["shape"]
+            fin_shape = tuple(spec["size"])
+            init_shape = spec["shape"]
 
-            if final_shape != declared_shape:
+            if all(idx == 0 for idx in fin_shape):  # dataset has not been written into
+                del self._file[name]  # delete dataset
+                logger.debug(f"Deleted datset '{name}' as it was not written into.")
+            elif fin_shape != init_shape:  # dataset has been partially written into
+                self._file[name].resize(fin_shape)  # trim dataset
+                logger.debug(f"Resized dataset '{name}': {init_shape} -> {fin_shape}.")
 
-                if spec["chunks"] is not False:  # okay for resizable datasets
-                    dataset.resize(final_shape)
-                    logger.debug(
-                        f"Resized dataset '{name}': {declared_shape} -> {final_shape}."
-                    )
-                    dataset.attrs["is_complete"] = True
-                else:
-                    dataset.attrs["is_complete"] = False
-                    logger.warning(
-                        f"Dataset '{name}' has been marked as incomplete as its "
-                        f"{final_shape = } but {declared_shape = }. It contains "
-                        f"default fill values and must be analyzed with caution."
-                    )
-
-            else:
-                dataset.attrs["is_complete"] = True
-
-        self._file.flush()
         self._file.close()
+        self._file = None
         self._lock = True  # lock data file, no more data can be written to it
 
     def save_data(
@@ -246,11 +226,10 @@ class DataSaver:
 
         try:
             logger.debug(f"Wrote '{data.shape = }' to dataset '{name}' at '{index = }'")
-        except AttributeError:  # in the off-chance that supplied data is not a np array
+        except AttributeError:  # if the supplied data is not an np array
             logger.debug(f"Wrote '{len(data) = }' to dataset '{name}' at '{index = }'.")
 
-        # track size from indices
-        self._track_size(name, index)
+        self._track_size(name, index)  # for trimming dataset if needed in __exit__()
 
     def _get_dataset(self, name: str) -> h5py.Dataset:
         """ """
@@ -297,17 +276,17 @@ class DataSaver:
 
     def _track_size(self, name: str, index: tuple[int | slice]) -> None:
         """ """
-        if index is ...:
+        if index is ...:  # we have written to the entire dataset
             self._dataspec[name]["size"] = list(self._dataspec[name]["shape"])
             return
 
-        size = self._dataspec[name]["size"].copy()  # to be updated based on index
+        size = self._dataspec[name]["size"].copy()  # to be updated below based on index
         for i, item in enumerate(index):
             if isinstance(item, slice):
                 # stop = None means we have written data to this dimension completely
                 if item.stop is None:
                     size[i] = self._dataspec[name]["shape"][i]  # maximum possible value
-                else:  # compare with existing size
+                else:  # compare with existing size along ith dimension
                     size[i] = max(size[i], item.stop)
             else:  # item is an int
                 size[i] = max(size[i], item)
@@ -327,7 +306,7 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
 
     x_len = 51
-    y_len = 21
+    y_len = 25
     reps = 100
 
     # this dataspec will be declared by each Experiment class
@@ -335,13 +314,11 @@ if __name__ == "__main__":
         # 1D independent variables x and y
         "x": {
             "shape": (x_len,),
-            "chunks": False,
             "dtype": "f4",  # 32-bit floating point number
             "units": "Hz",
         },
         "y": {
             "shape": (y_len,),
-            "chunks": False,
             "dtype": "f4",
             "units": "dB",
         },
@@ -349,7 +326,6 @@ if __name__ == "__main__":
         # this dataset will be written to in batches (simulate live saving)
         "z": {
             "shape": (reps, y_len, x_len),  # let n = 40
-            "chunks": True,  # resizable dataset, with auto chunking
             "dims": ("n", "y", "x"),  # dimension labels
             "dtype": "f4",
             "units": "AU",
@@ -357,7 +333,6 @@ if __name__ == "__main__":
         # 1D dependent variable avg which will be written to once
         "avg": {
             "shape": (y_len, x_len),  # average over n
-            "chunks": False,
             "dtype": "f4",
             "units": "AU",
         },
@@ -373,7 +348,6 @@ if __name__ == "__main__":
     # all data generated by the experiment must be saved within a single session
 
     with DataSaver(path=path, **dataspec) as datasaver:
-
         x = np.linspace(5e9, 6e9, x_len)
         y = np.linspace(0.0, 10.0, y_len)
 
@@ -388,6 +362,7 @@ if __name__ == "__main__":
                 batches = reps - count
 
             z = np.random.random((batches, y_len, x_len))
+            print(z)
 
             # calculate index position to save this batch of z data at
             index = (slice(count, count + batches), slice(None), slice(None))
@@ -395,7 +370,7 @@ if __name__ == "__main__":
 
             count += batches
             print(f"Data {count = }.")
-            time.sleep(1)
+            time.sleep(2)
 
         # save averaged data over all reps at the end
         avg = np.average(z, axis=0)
