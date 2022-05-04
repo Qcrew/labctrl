@@ -48,101 +48,62 @@ class LiveDataPlotter(LivePlotter):
         """ """
         super().__init__(**kwargs)
 
-        # set plot hooks for more direct live plot updating
-        code = f"{int(show_fit)}{int(show_err)}{int(legend is None)}"
-        plot_hook_dict = {
-            "000": self._update_many_plot,
-            "001": self._update_one_plot,
-            "010": self._update_many_plot_err,
-            "011": self._update_one_plot_err,
-            "100": self._update_many_plot_fit,
-            "101": self._update_one_plot_fit,
-            "110": self._update_many_plot_fit_err,
-            "111": self._update_one_plot_fit_err,
-        }
-        self._hook = plot_hook_dict[code]
+        if legend is None:
+            legend = ["y"]  # to initialize plots in one loop
+            self._hook = self._plot_single
+        else:
+            self._hook = self._plot_multiple
 
-        legend = ["y"] if legend is None else legend  # to initialize plots in one loop
-        num_plots = len(legend) * 2 if show_fit else len(legend)
-        self.plots, self.errorbars = [], []
-        for idx, name in enumerate(legend):  # initialize plots and error bars
-            intcolor = (idx, num_plots)
+        self.traces = {}
+        i = 0  # to count plots for assigning color
+        n = len(legend) * 2 if show_fit else len(legend)  # total number of plots
+        for name in legend:
+            self.traces[name] = dict.fromkeys(("data", "fit", "err"))
+
             if scatter:
-                plot = pg.ScatterPlotItem(name=name, brush=intcolor, pen=None, size=5)
+                kwargs = {"name": name, "brush": (i, n), "pen": None, "size": 5}
+                self.traces[name]["data"] = pg.ScatterPlotItem(**kwargs)
             else:
-                pen = pg.mkPen(*intcolor, width=2)
-                plot = pg.PlotCurveItem(name=name, pen=pen)
-            self.plots.append(plot)
-            self.plt.addItem(plot)
+                kwargs = {"name": name, "pen": pg.mkPen(i, n, width=2)}
+                self.traces[name]["data"] = pg.PlotCurveItem(**kwargs)
             if show_err:
-                errorbar = pg.ErrorBarItem(pen=intcolor)
-                self.errorbars.append(errorbar)
-                self.plt.addItem(errorbar)
+                self.traces[name]["err"] = pg.ErrorBarItem(pen=(i, n))
+            i += 1
 
-        self.fits = []
-        if show_fit:
-            for idx, name in enumerate(legend, start=len(legend)):
-                pen = pg.mkPen(idx, num_plots, width=2)
-                plot = pg.PlotCurveItem(name=f"{name}_fit", pen=pen)
-                self.fits.append(plot)
-                self.plt.addItem(plot)
+            if show_fit:
+                kwargs = {"name": f"{name}_fit", "pen": pg.mkPen(i, n, width=2)}
+                self.traces[name]["fit"] = pg.PlotCurveItem(**kwargs)
+                i += 1
 
-    def plot(self, *, x=None, y=None, yfit=None, xerr=None, yerr=None) -> None:
-        """x/xerr must be 1D np array, y/yerr/yfit can be 1D or 2D np array"""
-        self._hook(x=x, y=y, yfit=yfit, xerr=xerr, yerr=yerr)
+        for traces in self.traces.values():
+            for trace in traces.values():
+                if trace is not None:
+                    self.plt.addItem(trace)
 
-    def _update_many_plot(self, **kwargs) -> None:
+    def plot(self, x, **kwargs) -> None:
+        """x must be a 1D np array
+        if one trace, valid kwargs = data, fit, err. their value must be a 1D np array
+        if many traces, kwarg is the trace label and value is a dict with keys = data, fit, err and value must be a 1D np array. fit and err are always optional args.
+        """
+        self._hook(x=x, **kwargs)
+
+    def _plot_single(self, *, x, data, fit=None, err=None) -> None:
         """ """
-        x, y = kwargs["x"], kwargs["y"]
-        for idx in range(y.shape[0]):
-            self.plots[idx].setData(x, y[idx])
+        self.traces["y"]["data"].setData(x, data)
+        if fit is not None:
+            self.traces["y"]["fit"].setData(x, fit)
+        if err is not None:
+            self.traces["y"]["err"].setData(x=x, y=data, height=err)
 
-    def _update_one_plot(self, **kwargs) -> None:
+    def _plot_multiple(self, *, x: np.ndarray, **kwargs) -> None:
         """ """
-        self.plots[0].setData(kwargs["x"], kwargs["y"])
-
-    def _update_many_plot_err(self, **kwargs) -> None:
-        """ """
-        x, y, xerr, yerr = kwargs["x"], kwargs["y"], kwargs["xerr"], kwargs["yerr"]
-        for idx in range(y.shape[0]):
-            self.plots[idx].setData(x, y[idx])
-            self.errorbars[idx].setData(x=x, y=y[idx], height=yerr[idx], width=xerr)
-
-    def _update_one_plot_err(self, **kwargs) -> None:
-        """ """
-        x, y, xerr, yerr = kwargs["x"], kwargs["y"], kwargs["xerr"], kwargs["yerr"]
-        self.plots[0].setData(x, y)
-        self.errorbars[0].setData(x=x, y=y, height=yerr, width=xerr)
-
-    def _update_many_plot_fit(self, **kwargs) -> None:
-        """ """
-        x, y, yfit = kwargs["x"], kwargs["y"], kwargs["yfit"]
-        for idx in range(y.shape[0]):
-            self.plots[idx].setData(x, y[idx])
-            self.fits[idx].setData(x, yfit[idx])
-
-    def _update_one_plot_fit(self, **kwargs) -> None:
-        """ """
-        x, y, yfit = kwargs["x"], kwargs["y"], kwargs["yfit"]
-        self.plots[0].setData(x, y)
-        self.fits[0].setData(x, yfit)
-
-    def _update_many_plot_fit_err(self, **kwargs) -> None:
-        """ """
-        x, y = kwargs["x"], kwargs["y"]
-        yfit, xerr, yerr = kwargs["yfit"], kwargs["xerr"], kwargs["yerr"]
-        for idx in range(y.shape[0]):
-            self.plots[idx].setData(x, y[idx])
-            self.fits[idx].setData(x, yfit[idx])
-            self.errorbars[idx].setData(x=x, y=y, height=yerr[idx], width=xerr)
-
-    def _update_one_plot_fit_err(self, **kwargs) -> None:
-        """ """
-        x, y = kwargs["x"], kwargs["y"]
-        yfit, xerr, yerr = kwargs["yfit"], kwargs["xerr"], kwargs["yerr"]
-        self.plots[0].setData(x, y)
-        self.fits[0].setData(x, yfit)
-        self.errorbars[0].setData(x=x, y=y, height=yerr, width=xerr)
+        for name, traces in kwargs.items():
+            y = traces["data"]
+            self.traces[name]["data"].setData(x, y)
+            if "fit" in traces:
+                self.traces[name]["fit"].setData(x, traces["fit"])
+            if "err" in traces:
+                self.traces[name]["err"].setData(x=x, y=y, height=traces["err"])
 
 
 class LiveImagePlotter(LivePlotter):
@@ -209,15 +170,25 @@ if __name__ == "__main__":
         ylabel="Y",
         yunits="m",
         scatter=False,
-        legend=None,
+        legend=["A", "B"],
         show_fit=True,
         show_err=True,
     )
 
     x = np.linspace(0, 1, 50)
-    a = np.linspace(0, 5, 50)
-    b = np.linspace(0, 4, 50)
-    lp.plot(x=x, y=a, yerr=1, yfit=b)
+    kwargs = {
+        "A": {
+            "data": np.linspace(4, 5, 50),
+            "fit": np.linspace(4.2, 4.9, 50),
+            "err": 0.1,
+        },
+        "B": {
+            "data": np.linspace(3, 4, 50),
+            "fit": np.linspace(3.2, 3.9, 50),
+            "err": np.linspace(0, 0.2, 50),
+        },
+    }
+    lp.plot(x=x, **kwargs)
 
     lp.show()
     app.exec()
