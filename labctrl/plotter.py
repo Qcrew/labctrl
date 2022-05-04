@@ -48,13 +48,8 @@ class LiveDataPlotter(LivePlotter):
         """ """
         super().__init__(**kwargs)
 
-        if legend is None:
-            legend = ["y"]  # to initialize plots in one loop
-            self._hook = self._plot_single
-        else:
-            self._hook = self._plot_multiple
-
         self.traces = {}
+        legend = ["y"] if legend is None else legend  # to initialize plots in one loop
         i = 0  # to count plots for assigning color
         n = len(legend) * 2 if show_fit else len(legend)  # total number of plots
         for name in legend:
@@ -82,21 +77,8 @@ class LiveDataPlotter(LivePlotter):
 
     def plot(self, x, **kwargs) -> None:
         """x must be a 1D np array
-        if one trace, valid kwargs = data, fit, err. their value must be a 1D np array
-        if many traces, kwarg is the trace label and value is a dict with keys = data, fit, err and value must be a 1D np array. fit and err are always optional args.
+        kwarg is the trace label (for single trace, use 'y') and value is a dict with keys = data, fit, err and value must be a 1D np array. fit and err are always optional args.
         """
-        self._hook(x=x, **kwargs)
-
-    def _plot_single(self, *, x, data, fit=None, err=None) -> None:
-        """ """
-        self.traces["y"]["data"].setData(x, data)
-        if fit is not None:
-            self.traces["y"]["fit"].setData(x, fit)
-        if err is not None:
-            self.traces["y"]["err"].setData(x=x, y=data, height=err)
-
-    def _plot_multiple(self, *, x: np.ndarray, **kwargs) -> None:
-        """ """
         for name, traces in kwargs.items():
             y = traces["data"]
             self.traces[name]["data"].setData(x, y)
