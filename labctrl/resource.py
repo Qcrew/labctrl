@@ -19,10 +19,10 @@ class ResourceMetaclass(type):
         """ """
         super().__init__(name, bases, kwds)
 
-        cls._params = parametrize(cls)  # key: parameter name, value: Parameter object
-        cls._defaults = {k: v.default for k, v in cls._params.items() if v.has_default}
-        cls._gettables = {k for k, v in cls._params.items() if v.is_gettable}
-        cls._settables = {k for k, v in cls._params.items() if v.is_settable}
+        cls.paramspec: dict[str, Parameter] = parametrize(cls)
+        cls.defaults = {k: v.default for k, v in cls.paramspec.items() if v.has_default}
+        cls.gettables = {k for k, v in cls.paramspec.items() if v.is_gettable}
+        cls.settables = {k for k, v in cls.paramspec.items() if v.is_settable}
 
     def __repr__(cls) -> str:
         """ """
@@ -39,7 +39,7 @@ class Resource(metaclass=ResourceMetaclass):
         self._name = str(name)
         logger.debug(f"Initialized {self}.")
         # set parameters with default values (if present) if not supplied by the user
-        self.configure(**{**self.__class__._defaults, **parameters})
+        self.configure(**{**self.__class__.defaults, **parameters})
 
     def __repr__(self) -> str:
         """ """
@@ -53,20 +53,18 @@ class Resource(metaclass=ResourceMetaclass):
     @property
     def parameters(self) -> list[str]:
         """ """
-        return [repr(parameter) for parameter in self.__class__._params.values()]
+        return [repr(parameter) for parameter in self.__class__.paramspec.values()]
 
     def configure(self, **parameters) -> None:
         """ """
         for name, value in parameters.items():
-            if name in self.__class__._settables:
+            if name in self.__class__.settables:
                 setattr(self, name, value)
                 logger.debug(f"Set {self} '{name}' = {value}.")
-            else:
-                logger.warning(f"'{name}' is not a settable parameter of {self}.")
 
     def snapshot(self) -> dict[str, Any]:
         """ """
-        return {name: getattr(self, name) for name in sorted(self.__class__._gettables)}
+        return {name: getattr(self, name) for name in sorted(self.__class__.gettables)}
 
 
 class Instrument(Resource):
