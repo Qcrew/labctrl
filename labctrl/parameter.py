@@ -144,6 +144,11 @@ class Parameter:
         self._bound(value, obj, self)  # validate the value to be set
         self.fset(obj, value)
 
+    @property
+    def name(self) -> str:
+        """ """
+        return self._name
+
     def getter(self, getter):
         """ """
         self.fget = getter
@@ -175,11 +180,11 @@ class Parameter:
         return self._default is not _MISSING
 
 
-def parametrize(cls: Type[Any]) -> dict[str, Parameter]:
-    """ """
+def parametrize(cls: Type[Any], filter: Any | tuple[Any] = Parameter) -> dict[str, Any]:
+    """return all declared class variables of given cls with given filter"""
     if not inspect.isclass(cls):
         message = f"Argument must be Python class, not '{cls}' of {type(cls)}."
         logger.error(message)
         raise ValueError(message)
-    f = inspect.getmro(cls)  # f is for family
-    return {k: v for c in f for k, v in c.__dict__.items() if isinstance(v, Parameter)}
+    mro = inspect.getmro(cls)
+    return {k: v for c in mro for k, v in c.__dict__.items() if isinstance(v, filter)}
