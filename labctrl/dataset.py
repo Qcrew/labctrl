@@ -2,6 +2,8 @@
 This module contains utilities to specify datasets to control how experimental data is saved and plotted. 
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -9,18 +11,19 @@ import numpy as np
 
 from labctrl.sweep import Sweep
 
+
 @dataclass
 class Dataset:
     """ """
 
     # axes defines the dataset's dimension labels and shape
-    axes: tuple[Sweep] | dict[str, Sweep | int]
+    axes: tuple[str | Sweep] | dict[str, Sweep | int]
 
     # name of the dataset, as it will appear in the datafile
     name: str | None = None
 
     # function applied to incoming data before saving/plotting
-    datafn: Callable[..., np.ndarray] = None
+    datafn: Datafn = None
 
     # whether or not this dataset will be saved to the datafile by the DataSaver
     save: bool = True
@@ -41,11 +44,22 @@ class Dataset:
     maxlines: int = 10
 
     # functions to receive best fit and errorbar arrays during plotting
-    fitfn: Callable[[np.ndarray], np.ndarray] = None
-    errfn: Callable[[np.ndarray], np.ndarray] = None
+    fitfn: Callable = None
+    errfn: Callable = None
 
     @property
     def shape(self) -> list[int]:
         """ """
         return [v.length if isinstance(v, Sweep) else v for v in self.axes.values()]
 
+
+@dataclass
+class Datafn:
+    """
+    Callable tagged on to Datasets that is called to process raw data belonging to other Datasets into data whose content and shape is compatible with this Dataset.
+    """
+
+    # raw datasets that are the sources for the Dataset this function is tagged to
+    source: tuple[Dataset]
+
+    def 

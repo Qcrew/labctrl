@@ -11,7 +11,7 @@ from typing import Any
 from labctrl.datasaver import DataSaver
 from labctrl.dataset import Dataset
 from labctrl.logger import logger
-from labctrl.parameter import parametrize
+from labctrl.parameter import Parameter, parametrize
 from labctrl.plotter import LivePlotter
 from labctrl.resource import Resource
 from labctrl.settings import Settings
@@ -68,6 +68,7 @@ class Experiment(metaclass=ExperimentMetaclass):
     # for plotted datasets, set "errfn" and "fitfn" too if needed
     # for derived datasets, set "datafn" too
     # whether or not the datasets are plotted / saved can be changed in run()
+    # use "N" as axis label to indicate repetitions!!!
     # I = Dataset(axes=(power, frequency), units="AU")
     # signal: Dataset(axes=(power, frequency), units="AU", save=False, plot=True)
     # the number of repetitions (N) dimension will be added to the dataset at runtime
@@ -124,16 +125,18 @@ class Experiment(metaclass=ExperimentMetaclass):
 
     def _prepare_datasets(self) -> None:
         """
-        Add an "N" dimension to axes if N > 1
+        N is treated specially - string "N" in axes is the averaging dimension
         Remove dimension from axes if not a sweep
         """
         sweeps = self.__class__.sweepspec.values()
         for name, dataset in self.__class__.dataspec.items():
             dataset.name = name  # to identify dataset name from dataset object later on
-            axes = {} if self.N > 1 else {"N": self.N}
+            axes = {}
             for sweep in dataset.axes:
                 if sweep in sweeps:
                     axes[sweep.name] = self._sweeps[sweep.name]
+                elif sweep == "N":
+                    axes[sweep] = self.N
                 else:
                     message = (
                         f"Invalid {sweep = } declared in Dataset {name} 'axes'. "
@@ -150,10 +153,10 @@ class Experiment(metaclass=ExperimentMetaclass):
         """
         snapshot includes instance attributes that do not start with "_" are are not instances of excluded classes - Resource, Sweep, Dataset, DataSaver, LivePlotter
         """
-        excluded = (Resource, Sweep, Dataset, DataSaver, LivePlotter)
+        xcls = (Resource, Sweep, Dataset, DataSaver, LivePlotter)  # excluded classes
         snapshot = {}
         for name, value in self.__dict__.items():
-            if not isinstance(value, excluded) and not name.startswith("_"):
+            if not isinstance(value, xcls) and not name.startswith("_"):
                 snapshot[name] = value
         return snapshot
 
