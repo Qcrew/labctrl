@@ -1,19 +1,21 @@
-""" Specifies interface for Experiments which take in run parameters set by the user and Resources from a Stage, bring about some interaction between Resources, generate data for plotting and saving/loading to disk, and perform analysis which may lead to some characterization (i.e. gain in knowledge) of some Resource(s) parameters
+"""
+Specifies interface for Experiments which take in run parameters set by the user and Resources from a Stage, bring about some interaction between Resources, generate data for plotting and saving/loading to disk, and perform analysis which may lead to some characterization (i.e. gain in knowledge) of some Resource(s) parameters
 """
 
 from collections import Counter
 import contextlib
 import dataclasses as dc
 from datetime import datetime
-import resource
 from typing import Any
 
-from labctrl.datahandler import Dataset, Sweep, DataSaver
+from labctrl.datasaver import DataSaver
+from labctrl.dataset import Dataset
 from labctrl.logger import logger
 from labctrl.parameter import parametrize
 from labctrl.plotter import LivePlotter
 from labctrl.resource import Resource
 from labctrl.settings import Settings
+from labctrl.sweep import Sweep
 
 
 class DatasetSpecificationError(Exception):
@@ -172,44 +174,34 @@ class Experiment(metaclass=ExperimentMetaclass):
         return self._filepath
 
     def run(
-        self,
-        save: bool | tuple[Dataset] | None = None,
-        plot: bool | tuple[Dataset] | None = None,
+        self, save: tuple[Dataset] | None = None, plot: tuple[Dataset] | None = None
     ):
         """
-        checks resources, prepares sweeps and datasets, sets which datasets to save/plot, enters context of datasaver and plotter, if save is not false, saves metadata. finally, calls sequence(). inside sequence, the user can access datasaver and plotter as self.datasaver and self.plotter!
+        checks resources, prepares sweeps and datasets, sets which datasets to save/plot, enters context of datasaver and plotter/
+        if save/plot are empty tuples, do not save/plot any dataset! if they are None, then we defer to the save/plot flags specified for datasets in the class definition. if they are not empty tuples, then we only save/plot the specified datasets.
         """
         self._check_resources()
         self._prepare_sweeps()
         self._prepare_datasets()
-
-        if isinstance(save, bool):
-            for dataset in self._datasets.values():
-                dataset.save = save
-        elif not isinstance(save, None):
-            savelist = (dataset.name for dataset in save)
-            for dataset in self._datasets.values():
-                dataset.save = dataset.name in savelist
-
-        if isinstance(plot, bool):
-            for dataset in self._datasets.values():
-                dataset.plot = plot
-        elif not isinstance(plot, None):
-            plotlist = (dataset.name for dataset in plot)
-            for dataset in self._datasets.values():
-                dataset.plot = dataset.name in plotlist
-
         datasets = self._datasets.values()
-        datasaver = DataSaver(self.filepath, *datasets)
-        plotter = LivePlotter(*datasets)
+
+        savelist = (dataset.name for dataset in save) if save else ()
+        plotlist = (dataset.name for dataset in plot) if plot else ()
+        for dataset in datasets:
+            dataset.save = dataset.name in savelist
+            dataset.plot = dataset.name in plotlist
+
+        do_save = not all(dataset.save for dataset in datasets)
+        do_plot = not all(dataset.plot for dataset in datasets)
         with contextlib.ExitStack() as stack:
-            self.datasaver = stack.enter_context(datasaver)
-            if save is not False:
-                datasaver.save_metadata(self.metadata)
-
-            self.plotter = stack.enter_context(plotter)
-            logger.debug(f"Entered {self} datasaver and plotter! Running sequence...")
-
+            if do_save:
+                datasaver = DataSaver(self.filepath, *datasets)
+                self.datasaver = stack.enter_context(datasaver)
+                self.datasaver.save_metadata(self.metadata)
+            if do_plot:
+                plotter = LivePlotter(*datasets)
+                self.plotter = stack.enter_context(plotter)
+            logger.debug(f"Set up dataset saving and plotting! Running sequence...")
             self.sequence()
 
     def sequence(self) -> None:
