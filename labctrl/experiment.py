@@ -68,16 +68,18 @@ class Experiment(metaclass=ExperimentMetaclass):
     # for plotted datasets, set "errfn" and "fitfn" too if needed
     # for derived datasets, set "datafn" too
     # whether or not the datasets are plotted / saved can be changed in run()
-    # use "N" as axis label to indicate repetitions!!!
     # I = Dataset(axes=(power, frequency), units="AU")
     # signal: Dataset(axes=(power, frequency), units="AU", save=False, plot=True)
     # the number of repetitions (N) dimension will be added to the dataset at runtime
     # any uninitialized sweeps will also be removed from the axes at runtime
 
-    def __init__(self, N: int, wait: float) -> None:
+    # use this N to designate repetition dimension in subclasses
+    N = Parameter(bounds=int)
+
+    def __init__(self, n: int, wait: float) -> None:
         """must be called by subclasses"""
         self.name = self.__class__.__name__
-        self.N = N  # number of repetitions
+        self.n = n  # number of repetitions
         self.wait = wait  # time between 2 repetitions
         self._filepath = None
 
@@ -86,6 +88,11 @@ class Experiment(metaclass=ExperimentMetaclass):
         self._datasets: dict[str, Dataset] = {}
         self.datasaver: DataSaver = None
         self.plotter: LivePlotter = None
+
+    @N.getter
+    def N(self) -> int:
+        """ """
+        return self.n
 
     def __repr__(self) -> str:
         """ """
@@ -125,22 +132,21 @@ class Experiment(metaclass=ExperimentMetaclass):
 
     def _prepare_datasets(self) -> None:
         """
-        N is treated specially - string "N" in axes is the averaging dimension
         Remove dimension from axes if not a sweep
         """
         sweeps = self.__class__.sweepspec.values()
         for name, dataset in self.__class__.dataspec.items():
             dataset.name = name  # to identify dataset name from dataset object later on
             axes = {}
-            for sweep in dataset.axes:
-                if sweep in sweeps:
-                    axes[sweep.name] = self._sweeps[sweep.name]
-                elif sweep == "N":
-                    axes[sweep] = self.N
+            for axis in dataset.axes:
+                if axis in sweeps:
+                    axes[axis.name] = self._sweeps[axis.name]
+                elif isinstance(axis, Parameter):
+                    axes[axis.name] = getattr(self, name)
                 else:
                     message = (
-                        f"Invalid {sweep = } declared in Dataset {name} 'axes'. "
-                        f"Axis must a pre-defined class variable 'Sweep'."
+                        f"Invalid {axis = } declared in Dataset {name} 'axes'. "
+                        f"Axis must a class variable of type 'Sweep' or 'Parameter'."
                     )
                     logger.error(message)
                     raise DatasetSpecificationError(message) from None

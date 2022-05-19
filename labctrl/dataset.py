@@ -7,8 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-import numpy as np
-
+from labctrl.parameter import Parameter
 from labctrl.sweep import Sweep
 
 
@@ -17,7 +16,7 @@ class Dataset:
     """ """
 
     # axes defines the dataset's dimension labels and shape
-    axes: tuple[str | Sweep] | dict[str, Sweep | int]
+    axes: tuple[Parameter | Sweep] | dict[str, Sweep | int]
 
     # name of the dataset, as it will appear in the datafile
     name: str | None = None
@@ -61,5 +60,3 @@ class Datafn:
 
     # raw datasets that are the sources for the Dataset this function is tagged to
     source: tuple[Dataset]
-
-    def 
