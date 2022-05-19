@@ -32,20 +32,22 @@ class DataSaver:
     def __init__(self, path: str, *datasets: Dataset) -> None:
         """
         path: full path str to the datafile (must end in .h5 or .hdf5). DataSaver is not responsible for setting datafile naming/saving convention, the caller is.
-        *datasets: Dataset objects - only those datasets with save=True will be saved
+        *datasets: Dataset objects - only those datasets with save=True will be saved. at least one dataset must be specified, if not error will be thrown.
         """
-        if not datasets:
-            message = f"No datasets specified, DataSaver requires at least one Dataset."
-            logger.warning(message)
-            raise DataSavingError(message) from None
-
         self._file = None  # will be updated by __enter__() and __exit__()
         self._lock = False  # prevent write to file once first DataSaver context exits
-        self._path = Path(path)  # ensure pathlib methods work by casting to Path
-        self._validate_path()
+
+        if not datasets:
+            message = f"No datasets specified, DataSaver requires at least one Dataset."
+            logger.error(message)
+            raise DataSavingError(message)
 
         self._dataspec = {dataset.name: dataset for dataset in datasets}
         self._datalog: dict[str, list[int]] = {}  # to track dataset size during saving
+
+        self._path = Path(path)  # ensure pathlib methods work by casting to Path
+        self._validate_path()
+
         try:
             self._create_datasets()
         except (AttributeError, TypeError):
@@ -196,6 +198,10 @@ class DataSaver:
         index = tuple[int | slice] means that you want to insert the incoming data to a specific location ("hyperslab") in the dataset. Use this while saving data that is being streamed in successive batches or in any other application that requires appending to existing dataset. we pass the index directly to h5py i.e. we do dataset[index] = incoming_data, so user must be familiar with h5py indexing convention to use this feature effectively. NOTE - we don't support ellipsis (...) please don't use it and use slice(None) instead. index must be a tuple (not list etc) to ensure proper saving behaviour. to ensure more explicit code and allow reliable tracking of written data, we also enforce that the index tuple dimensions match that of the dataset shape - if you want to write along an entire dimension, pass in a slice(None) object at that dimension's index.
         """
         self._validate_session()
+
+        if not dataset.save:
+            return
+
         name = dataset.name
         hdataset = self._get_dataset(name)  # hdataset is an h5py Dataset
         self._validate_index(name, hdataset, index)
