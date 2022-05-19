@@ -1,7 +1,7 @@
 """ """
 
 import numpy as np
-from PySide6 import QtWidgets
+from PySide6 import QtWidgets, QtCore
 import pyqtgraph as pg
 
 
@@ -9,7 +9,7 @@ class PlottingError(Exception):
     """ """
 
 
-class LivePlotter(QtWidgets.QMainWindow):
+class LivePlot(QtWidgets.QMainWindow):
     """A pyqtgraph-based plotter for real-time plotting on a 2D Cartesian grid."""
 
     def __init__(
@@ -31,10 +31,10 @@ class LivePlotter(QtWidgets.QMainWindow):
         self.plt.setLabels(title=title, bottom=(xlabel, xunits), left=(ylabel, yunits))
         self.plt.showGrid(x=True, y=True, alpha=0.1)
         self.plt.setMenuEnabled(False)
-        self.legend = self.plt.addLegend()
+        self.legend = self.plt.addLegend(offset=(1, 1))
 
 
-class LiveDataPlotter(LivePlotter):
+class LiveLinePlot(LivePlot):
     """for line and scatter plots, with fits and error bars"""
 
     def __init__(
@@ -88,7 +88,7 @@ class LiveDataPlotter(LivePlotter):
                 self.traces[name]["err"].setData(x=x, y=y, height=traces["err"])
 
 
-class LiveImagePlotter(LivePlotter):
+class LiveImagePlot(LivePlot):
     """for colormaps (linear scale)"""
 
     def __init__(
@@ -116,16 +116,54 @@ class LiveImagePlotter(LivePlotter):
         self.colorbar = pg.ColorBarItem(colorMap=cmap, label=zlabel, interactive=False)
         self.colorbar.setImageItem(self.image, insert_in=self.plt)
 
-    def plot(self, zdata: np.ndarray) -> None:
+    def plot(self, z: np.ndarray) -> None:
         """ """
-        self.image.setImage(image=zdata)
-        self.colorbar.setLevels(low=zdata.min(), high=zdata.max())
+        self.image.setImage(image=z)
+        self.colorbar.setLevels(low=z.min(), high=z.max())
+
+
+class LivePlotter:
+    """to manage interaction between live plots and data handlers. handlers emit signals when new data is available and when all data is collected."""
+
+    def __init__(self, plot_type: str, interval: int, datahandler, **kwargs) -> None:
+        """interval is in seconds
+        handler means data handler that's making data available between experiment/hdf5 datafile and plotter 
+        kwargs are passed to appropriate LivePlotter based on plot_type
+        """
+
+        if plot_type == "line":
+            self.view = LiveLinePlot(**kwargs)
+        elif plot_type == "image":
+            self.view = LiveImagePlot(**kwargs)
+        else:
+            message = f"Invalid {plot_type = }. Valid values = ('line', 'image')."
+            raise PlottingError(message)
+
+        self.datahandler = datahandler
+
+        self.app = QtWidgets.QApplication([])
+
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(interval * 1000)
+
+        self.app.exec()
+
+    def update(self) -> None:
+        """ """
+        stop = self.datahandler.stop_event.is_set()
+        newdata = self.datahandler.newdata_event.is_set()
+        if newdata:
+            self.datahandler.newdata_event.clear()
+            self.view.plot(**self.datahandler.newdata)
+        if stop:
+            self.timer.stop()
 
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
     """
-    lp = LiveImagePlotter(
+    lp = LiveImagePlot(
         title="live plot",
         xmin=0,
         xmax=2,
@@ -145,7 +183,7 @@ if __name__ == "__main__":
     lp.plot(zdata=z)
 
     """
-    lp = LiveDataPlotter(
+    lp = LiveLinePlot(
         title="live plot",
         xlabel="X",
         xunits="s",
@@ -174,3 +212,7 @@ if __name__ == "__main__":
 
     lp.show()
     app.exec()
+
+# stop_event = threading.Event()
+# newdata_event = threading.Event()
+# .newdata must give data acc to line or image plot() method
