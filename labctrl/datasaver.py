@@ -42,14 +42,14 @@ class DataSaver:
             logger.error(message)
             raise DataSavingError(message)
 
-        self._dataspec = {dataset.name: dataset for dataset in datasets}
+        self._dataspec: dict[str, Dataset | Sweep] = {}  # to store datasets and sweeps
         self._datalog: dict[str, list[int]] = {}  # to track dataset size during saving
 
         self._path = Path(path)  # ensure pathlib methods work by casting to Path
         self._validate_path()
 
         try:
-            self._create_datasets()
+            self._create_datasets(*datasets)
         except (AttributeError, TypeError):
             message = f"Please check if you provided valid init args of type Dataset."
             logger.error(message)
@@ -74,25 +74,28 @@ class DataSaver:
         # ensure folder containing the datafile exists
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _create_datasets(self) -> None:
+    def _create_datasets(self, *datasets: Dataset) -> None:
         """ """
         # mode = "x" means create file, fail if exists
         with h5py.File(self._path, mode="x", track_order=True) as file:
 
-            coordinates = self._find_coordinates()  # coordinates = sweeps of indep vars
+            coordinates = self._find_coordinates(*datasets)  # find sweeps of indep vars
             for name, sweep in coordinates.items():  # create coordinate datasets first
-                shape = (sweep.length,)
-                self._create_dataset(file, name, shape=shape, **sweep.metadata)
+                if sweep.save:
+                    self._create_dataset(file, shape=sweep.shape, **sweep.metadata)
+                    self._dataspec[name] = sweep
 
-            for name, dset in self._dataspec.items():
-                kws = {"dtype": dset.dtype, "units": dset.units, "chunks": dset.chunks}
-                self._create_dataset(file, name, shape=dset.shape, **kws)
-                self._dimensionalize_dataset(file, dset)
+            for ds in datasets:
+                if ds.save:
+                    mdata = {"dtype": ds.dtype, "units": ds.units, "chunks": ds.chunks}
+                    self._create_dataset(file, ds.name, ds.shape, **mdata)
+                    self._dataspec[ds.name] = ds
+                    self._dimensionalize_dataset(file, ds)
 
-    def _find_coordinates(self) -> dict[str, Sweep]:
+    def _find_coordinates(self, *datasets: Dataset) -> dict[str, Sweep]:
         """coordinate datasets hold the data of Sweeps"""
         coordinates = {}  # dict prevents duplication of Sweeps
-        for dataset in self._dataspec.values():
+        for dataset in datasets:
             for value in dataset.axes.values():
                 if isinstance(value, Sweep):
                     coordinates[value.name] = value
@@ -155,7 +158,7 @@ class DataSaver:
         # track the maximum value of the index the data is written to for each dimension
         # this will allow us to trim reziable datasets and mark uninitialized ones
         for name, dataset in self._dataspec.items():
-            rank = len(dataset.axes)
+            rank = len(dataset.axes) if isinstance(dataset, Dataset) else 1
             self._datalog[name] = [0] * rank
 
         return self
@@ -163,9 +166,9 @@ class DataSaver:
     def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
         """ """
         # trim datasets
-        for name, dataset in self._dataspec.items():
+        for name, dset in self._dataspec.items():
             fin_shape = tuple(self._datalog[name])
-            init_shape = dataset.shape
+            init_shape = dset.shape
 
             if all(idx == 0 for idx in fin_shape):  # dataset has not been written into
                 del self._file[name]  # delete dataset
@@ -179,7 +182,10 @@ class DataSaver:
         self._lock = True  # lock data file, no more data can be written to it
 
     def save_data(
-        self, dataset: Dataset, data: np.ndarray, index: tuple[int | slice] | ... = ...
+        self,
+        dataset: Dataset | Sweep,
+        data: np.ndarray,
+        index: tuple[int | slice | ellipsis] = ...,
     ) -> None:
         """insert a batch of data to the dataset at (optional) specified index. please call this method within a datasaver context, if not it will throw error.
 
@@ -195,7 +201,7 @@ class DataSaver:
 
         index = ... means that the incoming data is written to the entire dataset in one go i.e. we do dataset[...] = incoming_data. Use this when all the data to be saved is available in memory at the same time. this is the default option.
 
-        index = tuple[int | slice] means that you want to insert the incoming data to a specific location ("hyperslab") in the dataset. Use this while saving data that is being streamed in successive batches or in any other application that requires appending to existing dataset. we pass the index directly to h5py i.e. we do dataset[index] = incoming_data, so user must be familiar with h5py indexing convention to use this feature effectively. NOTE - we don't support ellipsis (...) please don't use it and use slice(None) instead. index must be a tuple (not list etc) to ensure proper saving behaviour. to ensure more explicit code and allow reliable tracking of written data, we also enforce that the index tuple dimensions match that of the dataset shape - if you want to write along an entire dimension, pass in a slice(None) object at that dimension's index.
+        index = tuple[int | slice | ellipsis] means that you want to insert the incoming data to a specific location ("hyperslab") in the dataset. Use this while saving data that is being streamed in successive batches or in any other application that requires appending to existing dataset. we pass the index directly to h5py i.e. we do dataset[index] = incoming_data, so user must be familiar with h5py indexing convention to use this feature effectively. index must be a tuple (not list etc) to ensure proper saving behaviour. to ensure more explicit code and allow reliable tracking of written data, we also enforce that the index tuple dimensions match that of the dataset shape - so an ellipsis may only be used to populate one dimension, if you want to populate multiple dimensions, use slice(None, None) instead.
         """
         self._validate_session()
 
@@ -274,6 +280,8 @@ class DataSaver:
                     size[i] = self._dataspec[name].shape[i]  # maximum possible value
                 else:  # compare with existing size along ith dimension
                     size[i] = max(size[i], item.stop)
+            elif item is ...:
+                size[i] = self._dataspec[name].shape[i]  # maximum possible value
             else:  # item is an int
                 size[i] = max(size[i], item)
         logger.debug(f"Tracked dataset '{name}' size {self._datalog[name]} -> {size}.")
