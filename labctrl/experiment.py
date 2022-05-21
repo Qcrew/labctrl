@@ -52,26 +52,32 @@ class Experiment(metaclass=ExperimentMetaclass):
     Base class. Responsible for resource check and preparing datasets for saving and plotting.
 
     To write child classes, inherit Experiment, use class annotations to declare Resource spec, use class variables to declare Dataset(s), Sweep(s), Parameter(s). The names of these variables may be passed as arguments to __init__().
+
+    class ExperimentSubclass(Experiment):
+        # first indicate Resources used in the Experiment as annotations, e.g.
+
+        instrument: Instrument
+        sample: Resource
+
+        # initialize all parameters that can be swept
+        # including those which might not be swept during runtime.
+        # set attributes "units", "dtype", and "save" as these do not change at runtime
+        # note that sweep save settings cannot be controlled at runtime
+
+        frequency = Sweep(units="Hz")
+        power = Sweep(units="dBm")
+
+        # initialize all Datasets this Experiment will generate (both raw and derived)
+        # set attributes "axes", "units", "dtype", "chunks", "save", "plot" here
+        # for plotted datasets, set "errfn" and "fitfn" too if needed
+        # for derived datasets, set "datafn" too
+        # whether or not the datasets are plotted / saved can be changed in run()
+        # use Experiment.N to indicate the number of repetitions (N) dimension
+        # any uninitialized sweeps will be removed from the axes at runtime
+
+        I = Dataset(axes=(Experiment.N, power, frequency), units="AU")
+        # TODO settle datafn, errfn, fitfn etc
     """
-
-    # indicate Resources used in the Experiment as annotations here, e.g.
-    # instrument: Resource
-
-    # initialize all parameters that can be swept, e.g.
-    # including those which might not be swept during runtime
-    # set attributes "units" and "dtype" only as these do not change at runtime
-    # frequency = Sweep(units="Hz")
-    # power = Sweep(units="dBm")
-
-    # initialize all Datasets this Experiment will generate (both raw and derived)
-    # set attributes "axes", "units", "dtype", "chunks", "save", "plot" here
-    # for plotted datasets, set "errfn" and "fitfn" too if needed
-    # for derived datasets, set "datafn" too
-    # whether or not the datasets are plotted / saved can be changed in run()
-    # I = Dataset(axes=(power, frequency), units="AU")
-    # signal: Dataset(axes=(power, frequency), units="AU", save=False, plot=True)
-    # the number of repetitions (N) dimension will be added to the dataset at runtime
-    # any uninitialized sweeps will also be removed from the axes at runtime
 
     N = Sweep()  # sweep of number of repetitions
 
@@ -95,8 +101,6 @@ class Experiment(metaclass=ExperimentMetaclass):
         self._filepath = None
 
         # these are set by run()
-        self._sweeps: dict[str, Sweep] = {}
-        self._datasets: dict[str, Dataset] = {}
         self.datasaver: DataSaver = None
         self.plotter: LivePlotter = None
 
@@ -104,61 +108,16 @@ class Experiment(metaclass=ExperimentMetaclass):
         """ """
         return f"Experiment '{self.name}'"
 
-    def _check_resources(self) -> None:
+    @property
+    def filepath(self) -> str:
         """ """
-        spec = [v.__class__ for v in self.__dict__.values() if isinstance(v, Resource)]
-        spec = dict(Counter(spec))
-        expectedspec = dict(Counter(self.__class__.resourcespec))
-        if spec != expectedspec:
-            message = f"Expect resource specification {expectedspec}, got {spec}."
-            logger.error(message)
-            raise ResourceSpecificationError(message)
-
-    def _prepare_sweeps(self) -> None:
-        """sweep dtype and units will be those declared in sweepspec.
-        each name in sweepspec must be set as self attribute upon initialization
-        """
-        for name, sweep in self.__class__.sweepspec.items():
-            sweep.name = name  # to identify sweep name from sweep object later on
-            try:
-                value = self.__dict__[name]
-            except KeyError:
-                message = (
-                    f"Name '{name}' is declared as a Sweep variable of {self}"
-                    f" but is not set as an attribute."
-                )
-                logger.error(message)
-                raise SweepSpecificationError(message) from None
-            else:
-                if isinstance(value, Sweep):
-                    changes = {"dtype": sweep.dtype, "units": sweep.units, "name": name}
-                    value = dc.replace(value, **changes)
-                    self.__dict__[name] = value
-                    self._sweeps[name] = value
-        logger.debug(f"Found {len(self._sweeps)} sweep(s)!")
-
-    def _prepare_datasets(self) -> None:
-        """
-        Remove dimension from axes if not a sweep
-        """
-        sweeps = self.__class__.sweepspec.values()
-        for name, dataset in self.__class__.dataspec.items():
-            dataset.name = name  # to identify dataset name from dataset object later on
-            axes = {}
-            for sweep in dataset.axes:
-                if sweep in sweeps:
-                    axes[sweep.name] = self._sweeps[sweep.name]
-                else:
-                    message = (
-                        f"Invalid {sweep = } declared in Dataset {name} 'axes'. "
-                        f"Axis must a class variable of type 'Sweep'."
-                    )
-                    logger.error(message)
-                    raise DatasetSpecificationError(message) from None
-            dataset = dc.replace(dataset, axes=axes)
-            setattr(self, name, dataset)  # used to save/plot datasets in sequence()
-            self._datasets[name] = dataset
-        logger.debug(f"Found {len(self._datasets)} dataset(s)!")
+        if self._filepath is None:
+            date, time = datetime.now().strftime("%Y-%m-%d %H-%M-%S").split()
+            foldername = Settings().datapath + f"/{self.project}/{date}/"
+            filesuffix = f"_{self.nametag}" if self.nametag else ""
+            filename = f"{time}_{self.name}{filesuffix}.h5"
+            self._filepath = foldername + filename
+        return self._filepath
 
     def snapshot(self) -> dict[str, Any]:
         """
@@ -179,17 +138,6 @@ class Experiment(metaclass=ExperimentMetaclass):
         metadata = {resource.name: resource.snapshot() for resource in resources}
         return {**metadata, None: self.snapshot()}
 
-    @property
-    def filepath(self) -> str:
-        """ """
-        if self._filepath is None:
-            date, time = datetime.now().strftime("%Y-%m-%d %H-%M-%S").split()
-            foldername = Settings().datapath + f"/{self.project}/{date}/"
-            filesuffix = f"_{self.nametag}" if self.nametag else ""
-            filename = f"{time}_{self.name}{filesuffix}.h5"
-            self._filepath = foldername + filename
-        return self._filepath
-
     def run(
         self, save: tuple[Dataset] | None = None, plot: tuple[Dataset] | None = None
     ):
@@ -199,8 +147,7 @@ class Experiment(metaclass=ExperimentMetaclass):
         """
         self._check_resources()
         self._prepare_sweeps()
-        self._prepare_datasets()
-        datasets = self._datasets.values()
+        datasets = self._prepare_datasets()
 
         savelist = (dataset.name for dataset in save) if save else ()
         plotlist = (dataset.name for dataset in plot) if plot else ()
@@ -233,3 +180,60 @@ class Experiment(metaclass=ExperimentMetaclass):
         self.plotter.plot(self.<dataset_name>, data)
         """
         raise NotImplementedError("Subclass(es) must implement sequence()!")
+
+    def _check_resources(self) -> None:
+        """ """
+        spec = [v.__class__ for v in self.__dict__.values() if isinstance(v, Resource)]
+        spec = dict(Counter(spec))
+        expectedspec = dict(Counter(self.__class__.resourcespec))
+        if spec != expectedspec:
+            message = f"Expect resource specification {expectedspec}, got {spec}."
+            logger.error(message)
+            raise ResourceSpecificationError(message)
+
+    def _prepare_sweeps(self) -> None:
+        """sweep dtype and units will be those declared in sweepspec.
+        each name in sweepspec must be set as self attribute upon initialization
+        """
+        for name, sweep in self.__class__.sweepspec.items():
+            sweep.name = name  # to identify sweep name from sweep object later on
+            try:
+                value = self.__dict__[name]
+            except KeyError:
+                message = (
+                    f"Name '{name}' is declared as a Sweep variable of {self}"
+                    f" but is not set as an attribute."
+                )
+                logger.error(message)
+                raise SweepSpecificationError(message) from None
+            else:
+                if isinstance(value, Sweep):
+                    changes = {"dtype": sweep.dtype, "units": sweep.units, "name": name}
+                    sweep = dc.replace(value, **changes)
+                    self.__dict__[name] = sweep
+                    logger.debug(f"Found {sweep}.")
+
+    def _prepare_datasets(self) -> list[Dataset]:
+        """
+        Remove dimension from axes if not a sweep
+        """
+        sweeps = self.__class__.sweepspec.values()
+        datasets = []
+        for name, dataset in self.__class__.dataspec.items():
+            dataset.name = name  # to identify dataset name from dataset object later on
+            axes = {}
+            for sweep in dataset.axes:
+                if sweep in sweeps:
+                    axes[sweep.name] = getattr(self, sweep.name)
+                else:
+                    message = (
+                        f"Invalid {sweep = } declared in Dataset {name} 'axes'. "
+                        f"Axis must a class variable of type 'Sweep'."
+                    )
+                    logger.error(message)
+                    raise DatasetSpecificationError(message) from None
+            dataset = dc.replace(dataset, axes=axes)
+            setattr(self, name, dataset)  # used to save/plot datasets in sequence()
+            datasets.append(dataset)
+            logger.debug(f"Found {dataset}.")
+        return datasets
