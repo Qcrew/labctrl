@@ -16,7 +16,7 @@ class Dataset:
     """ """
 
     # axes defines the dataset's dimension labels and shape
-    axes: tuple[Parameter | Sweep] | dict[str, Sweep | int]
+    axes: tuple[Sweep] | dict[str, Sweep]
 
     # name of the dataset, as it will appear in the datafile
     name: str | None = None
@@ -47,9 +47,9 @@ class Dataset:
     errfn: Callable = None
 
     @property
-    def shape(self) -> list[int]:
+    def shape(self) -> tuple[int]:
         """ """
-        return [v.length if isinstance(v, Sweep) else v for v in self.axes.values()]
+        return tuple(v.length for v in self.axes.values())
 
 
 @dataclass
