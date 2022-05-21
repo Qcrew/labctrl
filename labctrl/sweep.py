@@ -23,6 +23,7 @@ class Sweep:
     num: int = None  # number of points in sweep
     kind: str = "lin"  # "lin" or "log" (base 10) sweep
 
+    save: bool = True  # whether this Sweep will be saved to datafile by the DataSaver
     dtype: str = "f4"  # dtype used to save sweep points dataset
     units: str | None = None  # units attribute sweep points dataset is saved with
     name: str | None = None  # name of sweep variable
@@ -30,7 +31,7 @@ class Sweep:
     @property
     def metadata(self) -> dict[str, float | int | str]:
         """ """
-        x = ("points", "sweeps")  # excluded keys
+        x = ("points", "sweeps", "save")  # excluded keys
         return {k: v for k, v in self.__dict__.items() if k not in x and v is not None}
 
     @property
@@ -64,3 +65,8 @@ class Sweep:
     def length(self) -> int:
         """ """
         return len(self.data)
+
+    @property
+    def shape(self) -> tuple[int]:
+        """ """
+        return (self.length,)
