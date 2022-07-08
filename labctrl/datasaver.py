@@ -49,6 +49,7 @@ class DataSaver:
         self._validate_path()
 
         try:
+            print(datasets)
             self._create_datasets(*datasets)
         except (AttributeError, TypeError):
             message = f"Please check if you provided valid init args of type Dataset."
@@ -96,7 +97,7 @@ class DataSaver:
         """coordinate datasets hold the data of Sweeps"""
         coordinates = {}  # dict prevents duplication of Sweeps
         for dataset in datasets:
-            for value in dataset.axes.values():
+            for value in dataset.axes:
                 if isinstance(value, Sweep):
                     coordinates[value.name] = value
         logger.debug(f"Found {len(coordinates)} coordinates in the dataspec.")
@@ -131,7 +132,8 @@ class DataSaver:
     def _dimensionalize_dataset(self, file: h5py.File, dataset: Dataset) -> None:
         """internal method, for attaching dim scales to a single dataset with name=name."""
         hdset = file[dataset.name]  # h5py Dataset is different from labctrl Dataset
-        for idx, label in enumerate(dataset.axes.keys()):
+        labels = [sweep.name for sweep in dataset.axes]
+        for idx, label in enumerate(labels):
             hdset.dims[idx].label = label  # make dimension label
             message = f"Set dataset '{dataset.name}' dimension {idx} {label = }."
             if label in file.keys():  # label corresponds to coordinate dataset in file
@@ -209,7 +211,8 @@ class DataSaver:
             return
 
         name = dataset.name
-        hdataset = self._get_dataset(name)  # hdataset is an h5py Dataset
+        # hdataset is a h5py Dataset, to distinguish it from a labctrl Dataset
+        hdataset = self._get_dataset(name)
         self._validate_index(name, hdataset, index)
         hdataset[index] = data
         self._file.flush()
@@ -328,7 +331,7 @@ class DataSaver:
             raise DataSavingError(message)
 
     def _parse_attribute(self, key, value):
-        """TODO make these parsing rules more explicit once they have been settled"""
+        """ """
         if isinstance(value, (Number, np.number, str, bool, np.ndarray, dict)):
             return value
         elif isinstance(value, (list, tuple, set, frozenset)):

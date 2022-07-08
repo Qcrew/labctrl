@@ -16,7 +16,7 @@ class Dataset:
     """ """
 
     # axes defines the dataset's dimension labels and shape
-    axes: tuple[Sweep] | dict[str, Sweep]
+    axes: list[Sweep]
 
     # name of the dataset, as it will appear in the datafile
     name: str | None = None
@@ -49,7 +49,7 @@ class Dataset:
     @property
     def shape(self) -> tuple[int]:
         """ """
-        return tuple(v.length for v in self.axes.values())
+        return tuple(v.length for v in self.axes)
 
 
 @dataclass
